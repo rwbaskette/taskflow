@@ -28,10 +28,10 @@ git clone <repository-url>
 cd taskflow
 
 # Build the binary
-go build -o task .
+go build -o taskflow .
 
 # Or use the pre-built binary
-./task
+./taskflow
 ```
 
 ### Database Setup
@@ -56,9 +56,9 @@ The application automatically creates the SQLite database at `data/tasks.db` on 
 Add a new task to the task list.
 
 ```bash
-task add --id "1" --title "Implement login feature" --milestone "v1.0" --description "Add login functionality"
-task add --id "2" --title "Fix memory leak" --description "Memory leak in data processing" --milestone "v2.0"
-task add --id "3" --title "Deploy to production" --milestone "v2.0 Release" --actor "devops"
+taskflow add --id "1" --title "Implement login feature" --milestone "v1.0" --description "Add login functionality"
+taskflow add --id "2" --title "Fix memory leak" --description "Memory leak in data processing" --milestone "v2.0"
+taskflow add --id "3" --title "Deploy to production" --milestone "v2.0 Release" --actor "devops"
 ```
 
 #### Flags
@@ -78,10 +78,10 @@ task add --id "3" --title "Deploy to production" --milestone "v2.0 Release" --ac
 Update an existing task by its ID.
 
 ```bash
-task update --id "1" --title "New title"
-task update --id "abc" --description "Updated description" --milestone "v2.0"
-task update --id "1" --status "in_progress" --actor "new-owner"
-task update --id "1" --milestone "v2.0" --description "New description"
+taskflow update --id "1" --title "New title"
+taskflow update --id "abc" --description "Updated description" --milestone "v2.0"
+taskflow update --id "1" --status "in_progress" --actor "new-owner"
+taskflow update --id "1" --milestone "v2.0" --description "New description"
 ```
 
 #### Flags
@@ -104,8 +104,8 @@ task update --id "1" --milestone "v2.0" --description "New description"
 Mark a task as completed.
 
 ```bash
-task complete --id "1"
-task complete --id "abc123"
+taskflow complete --id "1"
+taskflow complete --id "abc123"
 ```
 
 #### Flags
@@ -121,8 +121,8 @@ task complete --id "abc123"
 Block a task with a reason. Blocked tasks cannot be worked on until unblocked.
 
 ```bash
-task block --id "1" --reason "Waiting for API documentation"
-task block --id "abc123" -r "Dependency not available"
+taskflow block --id "1" --reason "Waiting for API documentation"
+taskflow block --id "abc123" -r "Dependency not available"
 ```
 
 #### Flags
@@ -140,25 +140,25 @@ List all tasks with optional filtering and formatting.
 
 ```bash
 # List all tasks (default table format)
-task list
+taskflow list
 
 # Filter by milestone
-task list -m "sprint-1"
+taskflow list -m "sprint-1"
 
 # Filter by status and actor
-task list -s pending -a john
+taskflow list -s pending -a john
 
 # Output as markdown
-task list --format markdown
+taskflow list --format markdown
 
 # Pagination
-task list --limit 10 --offset 0
+taskflow list --limit 10 --offset 0
 
 # Include completed tasks
-task list --all
+taskflow list --all
 
 # Combined example
-task list -m "v1.0" -s in_progress --format table --limit 50
+taskflow list -m "v1.0" -s in_progress --format table --limit 50
 ```
 
 #### Flags
@@ -181,13 +181,13 @@ Reset in-progress tasks that have exceeded the specified timeout duration back t
 
 ```bash
 # Reset tasks in progress longer than 30 minutes
-task reset-timedout --minutes 30
+taskflow reset-timedout --minutes 30
 
 # Reset tasks in progress longer than 60 minutes
-task reset-timedout --minutes 60
+taskflow reset-timedout --minutes 60
 
 # Custom timeout
-task reset-timedout -m 45
+taskflow reset-timedout -m 45
 ```
 
 #### Flags
@@ -345,7 +345,7 @@ The CLI provides descriptive error messages for common issues:
 Enable verbose output for debugging:
 
 ```bash
-task --verbose add --id "1" --title "Test" --description "Test task" --milestone "v1.0"
+taskflow --verbose add --id "1" --title "Test" --description "Test task" --milestone "v1.0"
 ```
 
 ### Config File
@@ -353,7 +353,7 @@ task --verbose add --id "1" --title "Test" --description "Test task" --milestone
 Specify a custom configuration file:
 
 ```bash
-task --config /path/to/config.yaml <command>
+taskflow --config /path/to/config.yaml <command>
 ```
 
 ---
@@ -372,29 +372,29 @@ Task CLI version: 0.1.0
 
 ```bash
 # 1. Add tasks to a sprint
-task add --id "TASK-1" --title "Design database schema" --description "Create ERD and schema definitions" --milestone "sprint-1" --actor "alice"
-task add --id "TASK-2" --title "Implement API endpoints" --description "REST API for task CRUD" --milestone "sprint-1" --actor "bob"
-task add --id "TASK-3" --title "Write unit tests" --description "Test coverage for API" --milestone "sprint-1" --actor "alice"
+taskflow add --id "TASK-1" --title "Design database schema" --description "Create ERD and schema definitions" --milestone "sprint-1" --actor "alice"
+taskflow add --id "TASK-2" --title "Implement API endpoints" --description "REST API for task CRUD" --milestone "sprint-1" --actor "bob"
+taskflow add --id "TASK-3" --title "Write unit tests" --description "Test coverage for API" --milestone "sprint-1" --actor "alice"
 
 # 2. Start working on a task
-task update --id "TASK-1" --status in_progress
+taskflow update --id "TASK-1" --status in_progress
 
 # 3. Block a task waiting on dependency
-task block --id "TASK-3" --reason "Waiting for API to be ready"
+taskflow block --id "TASK-3" --reason "Waiting for API to be ready"
 
 # 4. Check progress
-task list -m "sprint-1"
-task list -m "sprint-1" --format markdown
+taskflow list -m "sprint-1"
+taskflow list -m "sprint-1" --format markdown
 
 # 5. Complete tasks
-task complete --id "TASK-1"
-task complete --id "TASK-2"
+taskflow complete --id "TASK-1"
+taskflow complete --id "TASK-2"
 
 # 6. View completed tasks
-task list --all -m "sprint-1"
+taskflow list --all -m "sprint-1"
 
 # 7. Check for timed-out tasks
-task reset-timedout --minutes 30
+taskflow reset-timedout --minutes 30
 ```
 
 ---
