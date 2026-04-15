@@ -1,14 +1,19 @@
 package service
 
 import (
+	"strings"
+
 	"github.com/user/project/internal/db"
 )
 
 // ListTaskFilter contains filters for listing tasks
 type ListTaskFilter struct {
 	Milestone string
+	Sprint    string
 	Status    string
 	Actor     string
+	ID        string
+	SortBy    string
 	Limit     int
 	Offset    int
 	ShowAll   bool
@@ -27,10 +32,12 @@ type ListTaskResult struct {
 type TaskItem struct {
 	ID          string
 	Milestone   string
+	Sprint      string
 	Title       string
 	Description string
 	Status      string
 	Actor       string
+	Created     string
 	LastUpdated string
 }
 
@@ -59,8 +66,11 @@ func (s *ListService) ListTasks(filter *ListTaskFilter) (*ListTaskResult, error)
 	// Build database filter
 	dbFilter := db.TaskFilter{
 		Milestone: filter.Milestone,
+		Sprint:    filter.Sprint,
 		Status:    filter.Status,
 		Actor:     filter.Actor,
+		ID:        filter.ID,
+		SortBy:    db.SortBy(filter.SortBy),
 		Limit:     filter.Limit,
 		Offset:    filter.Offset,
 	}
@@ -77,10 +87,12 @@ func (s *ListService) ListTasks(filter *ListTaskFilter) (*ListTaskResult, error)
 		items = append(items, TaskItem{
 			ID:          task.ID,
 			Milestone:   task.Milestone,
+			Sprint:      task.Sprint,
 			Title:       task.Title,
 			Description: task.Description,
 			Status:      task.Status,
 			Actor:       task.Actor,
+			Created:     task.Created.Format("2006-01-02 15:04:05"),
 			LastUpdated: task.LastUpdated.Format("2006-01-02 15:04:05"),
 		})
 	}
@@ -132,4 +144,32 @@ func (s *ListService) GetFilteredCount(filter *ListTaskFilter) (int, error) {
 	}
 
 	return len(tasks), nil
+}
+
+// GetTask retrieves a task by ID
+func (s *ListService) GetTask(id string) (*TaskItem, error) {
+	if s.database == nil {
+		return nil, ErrNilDatabase
+	}
+
+	if strings.TrimSpace(id) == "" {
+		return nil, ErrInvalidID
+	}
+
+	task, err := s.database.GetTaskByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TaskItem{
+		ID:          task.ID,
+		Milestone:   task.Milestone,
+		Sprint:      task.Sprint,
+		Title:       task.Title,
+		Description: task.Description,
+		Status:      task.Status,
+		Actor:       task.Actor,
+		Created:     task.Created.Format("2006-01-02 15:04:05"),
+		LastUpdated: task.LastUpdated.Format("2006-01-02 15:04:05"),
+	}, nil
 }

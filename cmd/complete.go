@@ -10,7 +10,14 @@ import (
 	cliErrors "github.com/user/project/pkg/errors"
 )
 
-var completeID string
+var (
+	completeID          string
+	completeTitle       string
+	completeDescription string
+	completeMilestone   string
+	completeStatus      string
+	completeActor       string
+)
 
 var completeCmd = &cobra.Command{
 	Use:   "complete",
@@ -29,6 +36,35 @@ Use 'task list' to find task IDs.`,
 			return
 		}
 
+		// Validate optional fields
+		if completeTitle != "" {
+			if err := cliErrors.ValidateTitle(completeTitle); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+
+		if completeMilestone != "" {
+			if err := cliErrors.ValidateMilestone(completeMilestone); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+
+		if completeActor != "" {
+			if err := cliErrors.ValidateActor(completeActor); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+
+		if completeStatus != "" {
+			if err := cliErrors.ValidateStatus(completeStatus); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+
 		// Initialize database
 		database, err := db.NewDB("data/tasks.db")
 		if err != nil {
@@ -37,8 +73,18 @@ Use 'task list' to find task IDs.`,
 		}
 		defer database.Close()
 
+		// Create input
+		input := &service.CompleteTaskInput{
+			ID:          completeID,
+			Title:       completeTitle,
+			Description: completeDescription,
+			Milestone:   completeMilestone,
+			Status:      completeStatus,
+			Actor:       completeActor,
+		}
+
 		// Complete task
-		result, err := service.CompleteTask(database, completeID)
+		result, err := service.CompleteTask(database, input)
 		if err != nil {
 			cliErrors.HandleError(err)
 			return
@@ -55,6 +101,11 @@ func init() {
 	rootCmd.AddCommand(completeCmd)
 
 	completeCmd.Flags().StringVarP(&completeID, "id", "i", "", "Task ID (required)")
+	completeCmd.Flags().StringVarP(&completeTitle, "title", "t", "", "Task title")
+	completeCmd.Flags().StringVarP(&completeDescription, "description", "d", "", "Task description")
+	completeCmd.Flags().StringVarP(&completeStatus, "status", "s", "", "Task status (todo, in_progress, done, blocked)")
+	completeCmd.Flags().StringVarP(&completeMilestone, "milestone", "m", "", "Milestone for the task")
+	completeCmd.Flags().StringVarP(&completeActor, "actor", "a", "", "Actor assigned to the task")
 
 	// Mark ID as required
 	if err := completeCmd.MarkFlagRequired("id"); err != nil {

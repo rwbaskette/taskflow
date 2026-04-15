@@ -8,7 +8,12 @@ import (
 
 // CompleteTaskInput contains the input parameters for completing a task
 type CompleteTaskInput struct {
-	ID string
+	ID          string
+	Title       string
+	Description string
+	Milestone   string
+	Status      string
+	Actor       string
 }
 
 // CompleteTaskResult contains the result of completing a task
@@ -23,31 +28,51 @@ type CompleteTaskResult struct {
 }
 
 // CompleteTask marks an existing task as completed
-func CompleteTask(database *db.DB, taskID string) (*CompleteTaskResult, error) {
+func CompleteTask(database *db.DB, input *CompleteTaskInput) (*CompleteTaskResult, error) {
 	if database == nil {
 		return nil, ErrNilDatabase
 	}
 
 	// Validate ID is provided
-	if taskID == "" {
+	if input.ID == "" {
 		return nil, ErrInvalidID
 	}
 
 	// Validate task exists
-	existingTask, err := database.ReadTask(taskID)
+	existingTask, err := database.ReadTask(input.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Update task status to completed and set timestamp
+	// Determine status: use provided status or default to "done"
+	status := input.Status
+	if status == "" {
+		status = "done"
+	}
+
+	// Update task with provided fields or existing values
 	updatedTask := &db.Task{
 		ID:          existingTask.ID,
-		Milestone:   existingTask.Milestone,
-		Title:       existingTask.Title,
-		Description: existingTask.Description,
-		Actor:       existingTask.Actor,
-		Status:      "done",
+		Milestone:   input.Milestone,
+		Title:       input.Title,
+		Description: input.Description,
+		Actor:       input.Actor,
+		Status:      status,
 		LastUpdated: time.Now().UTC(),
+	}
+
+	// Use existing values for empty fields
+	if updatedTask.Title == "" {
+		updatedTask.Title = existingTask.Title
+	}
+	if updatedTask.Description == "" {
+		updatedTask.Description = existingTask.Description
+	}
+	if updatedTask.Milestone == "" {
+		updatedTask.Milestone = existingTask.Milestone
+	}
+	if updatedTask.Actor == "" {
+		updatedTask.Actor = existingTask.Actor
 	}
 
 	// Update in database

@@ -13,6 +13,7 @@ type OutputFormat string
 const (
 	FormatTable    OutputFormat = "table"
 	FormatMarkdown OutputFormat = "markdown"
+	FormatXML      OutputFormat = "xml"
 )
 
 // TaskTableRenderer renders tasks in table or markdown format
@@ -45,6 +46,8 @@ func (r *TaskTableRenderer) Render(result *service.ListTaskResult) {
 	switch r.format {
 	case FormatMarkdown:
 		r.renderMarkdown(result)
+	case FormatXML:
+		r.renderXML(result)
 	default:
 		r.renderTable(result)
 	}
@@ -53,21 +56,27 @@ func (r *TaskTableRenderer) Render(result *service.ListTaskResult) {
 // renderTable renders tasks in table format
 func (r *TaskTableRenderer) renderTable(result *service.ListTaskResult) {
 	fmt.Println()
-	fmt.Printf("%s%-6s %-30s %-15s %-15s %-15s %s%s\n",
-		ColorBold, "ID", "Title", "Status", "Milestone", "Actor", "Last Updated", ColorReset)
-	fmt.Println(strings.Repeat("-", 100))
+	fmt.Printf("%s%-6s %-30s %-15s %-15s %-15s %-15s %-15s %s%s\n",
+		ColorBold, "ID", "Title", "Status", "Milestone", "Sprint", "Actor", "Created", "Last Updated", ColorReset)
+	fmt.Println(strings.Repeat("-", 134))
 
 	for _, task := range result.Tasks {
 		// Truncate long titles
 		title := task.Title
-		if len(title) > 28 {
-			title = title[:25] + "..."
+		if len(title) > 27 {
+			title = title[:27] + "..."
 		}
 
 		// Set milestone to "-" if empty
 		milestone := task.Milestone
 		if milestone == "" {
 			milestone = "-"
+		}
+
+		// Set sprint to "-" if empty
+		sprint := task.Sprint
+		if sprint == "" {
+			sprint = "-"
 		}
 
 		// Set actor to "-" if empty
@@ -89,14 +98,16 @@ func (r *TaskTableRenderer) renderTable(result *service.ListTaskResult) {
 			statusColor = ColorBlue
 		}
 
-		fmt.Printf("%-6s %-30s %s%-15s%s %-15s %-15s %s\n",
+		fmt.Printf("%-6s %-30s %s%-15s%s %-15s %-15s %-15s %-15s %s\n",
 			task.ID,
 			title,
 			statusColor,
 			task.Status,
 			ColorReset,
 			milestone,
+			sprint,
 			actor,
+			task.Created,
 			task.LastUpdated,
 		)
 	}
@@ -112,8 +123,8 @@ func (r *TaskTableRenderer) renderMarkdown(result *service.ListTaskResult) {
 	fmt.Println()
 
 	// Print header
-	fmt.Println("| ID | Title | Status | Milestone | Actor | Last Updated |")
-	fmt.Println("|---|------|--------|-----------|-------|---------------|")
+	fmt.Println("| ID | Title | Status | Milestone | Sprint | Actor | Created | Last Updated |")
+	fmt.Println("|---|------|--------|-----------|--------|-------|-------------|---------------|")
 
 	// Print rows
 	for _, task := range result.Tasks {
@@ -129,6 +140,12 @@ func (r *TaskTableRenderer) renderMarkdown(result *service.ListTaskResult) {
 		milestone := task.Milestone
 		if milestone == "" {
 			milestone = "-"
+		}
+
+		// Set sprint to "-" if empty
+		sprint := task.Sprint
+		if sprint == "" {
+			sprint = "-"
 		}
 
 		// Set actor to "-" if empty
@@ -150,12 +167,14 @@ func (r *TaskTableRenderer) renderMarkdown(result *service.ListTaskResult) {
 			status = "📋 " + task.Status
 		}
 
-		fmt.Printf("| %s | %s | %s | %s | %s | %s |\n",
+		fmt.Printf("| %s | %s | %s | %s | %s | %s | %s | %s |\n",
 			task.ID,
 			title,
 			status,
 			milestone,
+			sprint,
 			actor,
+			task.Created,
 			task.LastUpdated,
 		)
 	}
@@ -208,6 +227,30 @@ func (r *TaskTableRenderer) renderMarkdownPaginationInfo(result *service.ListTas
 	}
 }
 
+// renderXML renders tasks in XML format
+func (r *TaskTableRenderer) renderXML(result *service.ListTaskResult) {
+	fmt.Println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+	fmt.Println("<tasks>")
+	fmt.Printf("  <pagination total=\"%d\" limit=\"%d\" offset=\"%d\" hasMore=\"%v\"/>\n",
+		result.Total, result.Limit, result.Offset, result.HasMore)
+
+	for _, task := range result.Tasks {
+		fmt.Println("  <task>")
+		fmt.Printf("    <id>%s</id>\n", EscapeXML(task.ID))
+		fmt.Printf("    <title>%s</title>\n", EscapeXML(task.Title))
+		fmt.Printf("    <description>%s</description>\n", EscapeXML(task.Description))
+		fmt.Printf("    <status>%s</status>\n", EscapeXML(task.Status))
+		fmt.Printf("    <milestone>%s</milestone>\n", EscapeXML(task.Milestone))
+		fmt.Printf("    <sprint>%s</sprint>\n", EscapeXML(task.Sprint))
+		fmt.Printf("    <actor>%s</actor>\n", EscapeXML(task.Actor))
+		fmt.Printf("    <created>%s</created>\n", EscapeXML(task.Created))
+		fmt.Printf("    <lastUpdated>%s</lastUpdated>\n", EscapeXML(task.LastUpdated))
+		fmt.Println("  </task>")
+	}
+
+	fmt.Println("</tasks>")
+}
+
 // RenderTasks is a convenience function to render tasks with default format
 func RenderTasks(tasks []service.TaskItem, format OutputFormat) {
 	renderer := NewTaskTableRenderer(format)
@@ -230,12 +273,14 @@ func ParseOutputFormat(formatStr string) (OutputFormat, error) {
 		return FormatTable, nil
 	case "markdown", "md":
 		return FormatMarkdown, nil
+	case "xml":
+		return FormatXML, nil
 	default:
-		return "", fmt.Errorf("invalid output format: %s (valid options: table, markdown)", formatStr)
+		return "", fmt.Errorf("invalid output format: %s (valid options: table, markdown, xml)", formatStr)
 	}
 }
 
 // GetValidFormats returns a list of valid format options
 func GetValidFormats() []string {
-	return []string{"table", "markdown"}
+	return []string{"table", "markdown", "xml"}
 }

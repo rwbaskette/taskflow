@@ -8,7 +8,12 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+
+	_ "embed"
 )
+
+//go:embed schema.sql
+var embeddedSchema string
 
 // DB represents a database connection with connection pooling
 type DB struct {
@@ -105,6 +110,12 @@ func (db *DB) migrate() error {
 		if lastErr == nil {
 			break
 		}
+	}
+
+	// Fallback to embedded schema if file not found
+	if len(schemaData) == 0 && embeddedSchema != "" {
+		schemaData = []byte(embeddedSchema)
+		lastErr = nil
 	}
 
 	if len(schemaData) == 0 {

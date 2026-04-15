@@ -177,7 +177,7 @@ func TestCompleteTask_StatusTransitions(t *testing.T) {
 			}
 
 			// Try to complete
-			result, err := CompleteTask(database, "task-"+tt.name)
+			result, err := CompleteTask(database, &CompleteTaskInput{ID: "task-" + tt.name})
 			if tt.wantErr && err == nil {
 				t.Error("expected error but got nil")
 			}
@@ -414,7 +414,7 @@ func TestServiceErrors_NilDatabase(t *testing.T) {
 		{
 			name: "CompleteTask with nil database",
 			fn: func() error {
-				_, err := CompleteTask(nilDB, "t1")
+				_, err := CompleteTask(nilDB, &CompleteTaskInput{ID: "t1"})
 				return err
 			},
 		},
@@ -506,7 +506,7 @@ func TestCompleteTask_PreservesFields(t *testing.T) {
 	}
 
 	// Complete the task
-	completeResult, err := CompleteTask(database, "task-full")
+	completeResult, err := CompleteTask(database, &CompleteTaskInput{ID: "task-full"})
 	if err != nil {
 		t.Fatalf("failed to complete task: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestService_MultipleOperations(t *testing.T) {
 	}
 
 	// 2. Complete the task
-	completeResult, err := CompleteTask(database, "task-sequence")
+	completeResult, err := CompleteTask(database, &CompleteTaskInput{ID: "task-sequence"})
 	if err != nil {
 		t.Fatalf("CompleteTask failed: %v", err)
 	}
@@ -559,7 +559,7 @@ func TestService_MultipleOperations(t *testing.T) {
 	}
 
 	// 3. Try to complete again (should still work, idempotent)
-	completeResult2, err := CompleteTask(database, "task-sequence")
+	completeResult2, err := CompleteTask(database, &CompleteTaskInput{ID: "task-sequence"})
 	if err != nil {
 		t.Fatalf("CompleteTask second time failed: %v", err)
 	}

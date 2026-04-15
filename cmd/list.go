@@ -16,6 +16,8 @@ var (
 	listFilterMilestone string
 	listFilterStatus    string
 	listFilterActor     string
+	listFilterID        string
+	listSortBy          string
 	listFormat          string
 	listLimit           int
 	listOffset          int
@@ -29,13 +31,18 @@ var listCmd = &cobra.Command{
 
 You can filter by milestone, status, or actor to find specific tasks.
 Use the --all flag to include completed tasks in the listing.
-Use --format to choose output format (table or markdown).`,
+Use --format to choose output format (table, markdown, or xml).
+Use --sort-by to sort by status, priority, milestone, created, or updated.
+Use --id to get a specific task by its ID.`,
 	Example: `  task list
   task list -m "sprint-1"
   task list -s pending -a john
   task list --format markdown
   task list --limit 10 --offset 0
-  task list --all`,
+  task list --all
+  task list --sort-by status
+  task list --sort-by created
+  task list --id task-123`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Validate filter values
@@ -52,6 +59,31 @@ Use --format to choose output format (table or markdown).`,
 		if err := cliErrors.ValidateActor(listFilterActor); err != nil {
 			cliErrors.HandleError(err)
 			return
+		}
+
+		// Validate sort by
+		if listSortBy != "" {
+			validSortBy := map[string]bool{
+				"status":    true,
+				"priority":  true,
+				"milestone": true,
+				"created":   true,
+				"updated":   true,
+			}
+			if !validSortBy[listSortBy] {
+				cliErrors.HandleError(cliErrors.ValidationError("sort-by",
+					fmt.Sprintf("'%s' is not valid", listSortBy),
+					fmt.Sprintf("Valid sort values: status, priority, milestone, created, updated")))
+				return
+			}
+		}
+
+		// Validate ID
+		if listFilterID != "" {
+			if err := cliErrors.ValidateID(listFilterID); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
 		}
 
 		// Validate format
@@ -82,11 +114,32 @@ Use --format to choose output format (table or markdown).`,
 		// Create list service
 		listService := service.NewListService(database)
 
+		// If ID is specified, get a single task
+		if listFilterID != "" {
+			task, err := listService.GetTask(listFilterID)
+			if err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+			// Render single task
+			renderer := output.NewTaskTableRenderer(format)
+			renderer.Render(&service.ListTaskResult{
+				Tasks:   []service.TaskItem{*task},
+				Total:   1,
+				Limit:   1,
+				Offset:  0,
+				HasMore: false,
+			})
+			return
+		}
+
 		// Build filter
 		filter := &service.ListTaskFilter{
 			Milestone: listFilterMilestone,
 			Status:    listFilterStatus,
 			Actor:     listFilterActor,
+			ID:        listFilterID,
+			SortBy:    listSortBy,
 			Limit:     listLimit,
 			Offset:    listOffset,
 			ShowAll:   listAll,
@@ -112,9 +165,16 @@ func init() {
 	listCmd.Flags().StringVarP(&listFilterMilestone, "milestone", "m", "", "Filter by milestone")
 	listCmd.Flags().StringVarP(&listFilterStatus, "status", "s", "", "Filter by status")
 	listCmd.Flags().StringVarP(&listFilterActor, "actor", "", "", "Filter by actor")
-	listCmd.Flags().StringVarP(&listFormat, "format", "f", "table", "Output format (table|markdown)")
+	listCmd.Flags().StringVarP(&listFilterID, "id", "", "", "Get task by ID")
+	listCmd.Flags().StringVarP(&listSortBy, "sort-by", "", "", "Sort by field (status, priority, milestone, created, updated)")
+	listCmd.Flags().StringVarP(&listFormat, "format", "f", "table", "Output format (table|markdown|xml)")
 	listCmd.Flags().IntVarP(&listLimit, "limit", "l", 20, "Maximum number of tasks to display")
 	listCmd.Flags().IntVarP(&listOffset, "offset", "o", 0, "Number of tasks to skip")
+
+	// Register custom completers for sort-by
+	listCmd.RegisterFlagCompletionFunc("sort-by", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"status", "priority", "milestone", "created", "updated"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	// Register custom completers for status
 	listCmd.RegisterFlagCompletionFunc("status", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -162,6 +222,16 @@ func GetListAll() bool {
 	return listAll
 }
 
+// GetListFilterID returns the ID filter value
+func GetListFilterID() string {
+	return listFilterID
+}
+
+// GetListSortBy returns the sort by value
+func GetListSortBy() string {
+	return listSortBy
+}
+
 // SetListFilterMilestone sets the milestone filter value (for testing)
 func SetListFilterMilestone(val string) {
 	listFilterMilestone = val
@@ -197,11 +267,23 @@ func SetListAll(val bool) {
 	listAll = val
 }
 
+// SetListFilterID sets the ID filter value (for testing)
+func SetListFilterID(val string) {
+	listFilterID = val
+}
+
+// SetListSortBy sets the sort by value (for testing)
+func SetListSortBy(val string) {
+	listSortBy = val
+}
+
 // ResetListFlags resets all list flags to default values (for testing)
 func ResetListFlags() {
 	listFilterMilestone = ""
 	listFilterStatus = ""
 	listFilterActor = ""
+	listFilterID = ""
+	listSortBy = ""
 	listFormat = "table"
 	listLimit = 20
 	listOffset = 0

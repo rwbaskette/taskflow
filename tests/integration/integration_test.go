@@ -124,7 +124,7 @@ func TestCompleteTaskWorkflow(t *testing.T) {
 	}
 
 	// Complete the task
-	result, err := service.CompleteTask(cfg.DB, "task-003")
+	result, err := service.CompleteTask(cfg.DB, &service.CompleteTaskInput{ID: "task-003"})
 	if err != nil {
 		t.Fatalf("CompleteTask failed: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestMultiCommandSequence(t *testing.T) {
 	}
 
 	// Step 3: Complete the task
-	completeResult, err := service.CompleteTask(cfg.DB, "seq-001")
+	completeResult, err := service.CompleteTask(cfg.DB, &service.CompleteTaskInput{ID: "seq-001"})
 	if err != nil {
 		t.Fatalf("CompleteTask failed: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestMultiCommandSequenceWithBlockAndReset(t *testing.T) {
 	}
 
 	// Step 3: Complete the blocked task (should work)
-	_, err = service.CompleteTask(cfg.DB, "seq-002")
+	_, err = service.CompleteTask(cfg.DB, &service.CompleteTaskInput{ID: "seq-002"})
 	if err != nil {
 		t.Fatalf("CompleteTask failed: %v", err)
 	}
@@ -697,7 +697,7 @@ func TestErrorHandling(t *testing.T) {
 	}
 
 	// Test completing non-existent task
-	_, err = service.CompleteTask(cfg.DB, "non-existent")
+	_, err = service.CompleteTask(cfg.DB, &service.CompleteTaskInput{ID: "non-existent"})
 	if err == nil {
 		t.Error("expected error for completing non-existent task")
 	}
@@ -805,7 +805,7 @@ func TestStatusTransitions(t *testing.T) {
 	}
 
 	// Transition: in_progress -> done
-	_, err = service.CompleteTask(cfg.DB, "status-001")
+	_, err = service.CompleteTask(cfg.DB, &service.CompleteTaskInput{ID: "status-001"})
 	if err != nil {
 		t.Fatalf("failed to complete task: %v", err)
 	}
@@ -885,7 +885,7 @@ func TestMultipleTasksInSequence(t *testing.T) {
 	// Complete tasks 1, 3, 5
 	for _, i := range []int{1, 3, 5} {
 		id := string(rune('0' + i))
-		_, err := service.CompleteTask(cfg.DB, "multi-"+id)
+		_, err := service.CompleteTask(cfg.DB, &service.CompleteTaskInput{ID: "multi-" + id})
 		if err != nil {
 			t.Fatalf("failed to complete task %d: %v", i, err)
 		}

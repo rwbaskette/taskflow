@@ -45,7 +45,7 @@ func TestCompleteTask_ValidTaskCompletion(t *testing.T) {
 		t.Fatalf("failed to create task: %v", err)
 	}
 
-	result, err := CompleteTask(database, "task-001")
+	result, err := CompleteTask(database, &CompleteTaskInput{ID: "task-001"})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -67,7 +67,7 @@ func TestCompleteTask_ValidTaskCompletion(t *testing.T) {
 func TestCompleteTask_NilDatabase(t *testing.T) {
 	var database *db.DB = nil
 
-	result, err := CompleteTask(database, "task-001")
+	result, err := CompleteTask(database, &CompleteTaskInput{ID: "task-001"})
 
 	if err != ErrNilDatabase {
 		t.Errorf("expected ErrNilDatabase, got %v", err)
@@ -81,7 +81,7 @@ func TestCompleteTask_EmptyID(t *testing.T) {
 	database := setupTestDBComplete(t)
 	defer teardownTestDBComplete(t, database)
 
-	result, err := CompleteTask(database, "")
+	result, err := CompleteTask(database, &CompleteTaskInput{ID: ""})
 
 	if err != ErrInvalidID {
 		t.Errorf("expected ErrInvalidID, got %v", err)
@@ -95,7 +95,7 @@ func TestCompleteTask_TaskNotFound(t *testing.T) {
 	database := setupTestDBComplete(t)
 	defer teardownTestDBComplete(t, database)
 
-	result, err := CompleteTask(database, "nonexistent-task")
+	result, err := CompleteTask(database, &CompleteTaskInput{ID: "nonexistent-task"})
 
 	if err == nil {
 		t.Error("expected error for nonexistent task, got nil")
@@ -128,7 +128,7 @@ func TestCompleteTask_UpdatesStatusFromTodo(t *testing.T) {
 		t.Errorf("expected initial status 'todo', got %s", addResult.Status)
 	}
 
-	result, err := CompleteTask(database, "task-002")
+	result, err := CompleteTask(database, &CompleteTaskInput{ID: "task-002"})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -167,7 +167,7 @@ func TestCompleteTask_UpdatesStatusFromInProgress(t *testing.T) {
 		t.Fatalf("failed to update task status: %v", err)
 	}
 
-	result, err := CompleteTask(database, "task-003")
+	result, err := CompleteTask(database, &CompleteTaskInput{ID: "task-003"})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)

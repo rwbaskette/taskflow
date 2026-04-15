@@ -12,18 +12,40 @@ import (
 type Task struct {
 	ID          string    `json:"id"`
 	Milestone   string    `json:"milestone,omitempty"`
+	Sprint      string    `json:"sprint,omitempty"`
 	Title       string    `json:"title"`
 	Description string    `json:"description,omitempty"`
 	Status      string    `json:"status"`
+	Priority    int       `json:"priority,omitempty"`
 	Actor       string    `json:"actor,omitempty"`
+	Created     time.Time `json:"created"`
 	LastUpdated time.Time `json:"last_updated"`
+}
+
+// SortBy defines the field to sort by
+type SortBy string
+
+const (
+	SortByStatus    SortBy = "status"
+	SortByPriority  SortBy = "priority"
+	SortByMilestone SortBy = "milestone"
+	SortByCreated   SortBy = "created"
+	SortByUpdated   SortBy = "updated"
+)
+
+// ValidSortByValues returns all valid sort by values
+func ValidSortByValues() []string {
+	return []string{"status", "priority", "milestone", "created", "updated"}
 }
 
 // TaskFilter contains optional filters for listing tasks
 type TaskFilter struct {
 	Milestone string
+	Sprint    string
 	Status    string
 	Actor     string
+	ID        string
+	SortBy    SortBy
 	Limit     int
 	Offset    int
 }
@@ -75,23 +97,29 @@ func (db *DB) CreateTask(t *Task) error {
 		return NewTaskAlreadyExistsError(t.ID)
 	}
 
+	// Set Created to now if not set
+	if t.Created.IsZero() {
+		t.Created = time.Now().UTC()
+	}
 	// Set LastUpdated to now if not set
 	if t.LastUpdated.IsZero() {
 		t.LastUpdated = time.Now().UTC()
 	}
 
 	query := `
-		INSERT INTO tasks (id, milestone, title, description, status, actor, last_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, created, last_updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = db.conn.Exec(query,
 		t.ID,
 		t.Milestone,
+		t.Sprint,
 		t.Title,
 		t.Description,
 		t.Status,
 		t.Actor,
+		t.Created.Format(time.RFC3339),
 		t.LastUpdated.Format(time.RFC3339),
 	)
 	if err != nil {
@@ -123,23 +151,29 @@ func (db *DB) CreateTaskTx(tx *sql.Tx, t *Task) error {
 		return NewTaskAlreadyExistsError(t.ID)
 	}
 
+	// Set Created to now if not set
+	if t.Created.IsZero() {
+		t.Created = time.Now().UTC()
+	}
 	// Set LastUpdated to now if not set
 	if t.LastUpdated.IsZero() {
 		t.LastUpdated = time.Now().UTC()
 	}
 
 	query := `
-		INSERT INTO tasks (id, milestone, title, description, status, actor, last_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, created, last_updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = tx.Exec(query,
 		t.ID,
 		t.Milestone,
+		t.Sprint,
 		t.Title,
 		t.Description,
 		t.Status,
 		t.Actor,
+		t.Created.Format(time.RFC3339),
 		t.LastUpdated.Format(time.RFC3339),
 	)
 	if err != nil {
@@ -349,6 +383,57 @@ func (db *DB) DeleteTask(id string) error {
 	return nil
 }
 
+// GetTaskByID retrieves a task by its ID
+func (db *DB) GetTaskByID(id string) (*Task, error) {
+	if db == nil || db.conn == nil {
+		return nil, ErrNilDB
+	}
+
+	if strings.TrimSpace(id) == "" {
+		return nil, ErrInvalidID
+	}
+
+	query := `
+		SELECT id, milestone, sprint, title, description, status, actor, created, last_updated
+		FROM tasks
+		WHERE id = ?
+	`
+
+	var t Task
+	var createdStr string
+	var lastUpdatedStr string
+
+	err := db.conn.QueryRow(query, id).Scan(
+		&t.ID,
+		&t.Milestone,
+		&t.Sprint,
+		&t.Title,
+		&t.Description,
+		&t.Status,
+		&t.Actor,
+		&createdStr,
+		&lastUpdatedStr,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, NewTaskNotFoundError(id)
+		}
+		return nil, fmt.Errorf("failed to get task: %w", err)
+	}
+
+	t.Created, err = time.Parse(time.RFC3339, createdStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse created: %w", err)
+	}
+
+	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse last_updated: %w", err)
+	}
+
+	return &t, nil
+}
+
 // DeleteTaskTx deletes a task by ID within a transaction
 func (db *DB) DeleteTaskTx(tx *sql.Tx, id string) error {
 	if tx == nil {
@@ -384,12 +469,17 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 	}
 
 	// Build query with filters
-	query := "SELECT id, milestone, title, description, status, actor, last_updated FROM tasks WHERE 1=1"
+	query := "SELECT id, milestone, sprint, title, description, status, actor, created, last_updated FROM tasks WHERE 1=1"
 	args := []interface{}{}
 
 	if filter.Milestone != "" {
 		query += " AND milestone = ?"
 		args = append(args, filter.Milestone)
+	}
+
+	if filter.Sprint != "" {
+		query += " AND sprint = ?"
+		args = append(args, filter.Sprint)
 	}
 
 	if filter.Status != "" {
@@ -402,8 +492,14 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 		args = append(args, filter.Actor)
 	}
 
-	// Order by last_updated descending (most recent first)
-	query += " ORDER BY last_updated DESC"
+	if filter.ID != "" {
+		query += " AND id = ?"
+		args = append(args, filter.ID)
+	}
+
+	// Apply sorting
+	orderBy := getSortOrder(filter.SortBy)
+	query += orderBy
 
 	// Apply pagination
 	// SQLite requires LIMIT when using OFFSET
@@ -432,19 +528,27 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 	var tasks []Task
 	for rows.Next() {
 		var t Task
+		var createdStr string
 		var lastUpdatedStr string
 
 		err := rows.Scan(
 			&t.ID,
 			&t.Milestone,
+			&t.Sprint,
 			&t.Title,
 			&t.Description,
 			&t.Status,
 			&t.Actor,
+			&createdStr,
 			&lastUpdatedStr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
+		}
+
+		t.Created, err = time.Parse(time.RFC3339, createdStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse created: %w", err)
 		}
 
 		t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
@@ -474,12 +578,17 @@ func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
 	}
 
 	// Build query with filters
-	query := "SELECT id, milestone, title, description, status, actor, last_updated FROM tasks WHERE 1=1"
+	query := "SELECT id, milestone, sprint, title, description, status, actor, created, last_updated FROM tasks WHERE 1=1"
 	args := []interface{}{}
 
 	if filter.Milestone != "" {
 		query += " AND milestone = ?"
 		args = append(args, filter.Milestone)
+	}
+
+	if filter.Sprint != "" {
+		query += " AND sprint = ?"
+		args = append(args, filter.Sprint)
 	}
 
 	if filter.Status != "" {
@@ -492,7 +601,13 @@ func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
 		args = append(args, filter.Actor)
 	}
 
-	query += " ORDER BY last_updated DESC"
+	if filter.ID != "" {
+		query += " AND id = ?"
+		args = append(args, filter.ID)
+	}
+
+	orderBy := getSortOrder(filter.SortBy)
+	query += orderBy
 
 	// Apply pagination
 	// SQLite requires LIMIT when using OFFSET
@@ -521,19 +636,27 @@ func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
 	var tasks []Task
 	for rows.Next() {
 		var t Task
+		var createdStr string
 		var lastUpdatedStr string
 
 		err := rows.Scan(
 			&t.ID,
 			&t.Milestone,
+			&t.Sprint,
 			&t.Title,
 			&t.Description,
 			&t.Status,
 			&t.Actor,
+			&createdStr,
 			&lastUpdatedStr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
+		}
+
+		t.Created, err = time.Parse(time.RFC3339, createdStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse created: %w", err)
 		}
 
 		t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
@@ -567,6 +690,24 @@ func (db *DB) BeginTx() (*sql.Tx, error) {
 	}
 
 	return tx, nil
+}
+
+// getSortOrder returns the ORDER BY clause based on the sort field
+func getSortOrder(sortBy SortBy) string {
+	switch sortBy {
+	case SortByStatus:
+		return " ORDER BY status ASC"
+	case SortByPriority:
+		return " ORDER BY priority ASC"
+	case SortByMilestone:
+		return " ORDER BY milestone ASC, last_updated DESC"
+	case SortByCreated:
+		return " ORDER BY created DESC"
+	case SortByUpdated:
+		return " ORDER BY last_updated DESC"
+	default:
+		return " ORDER BY last_updated DESC"
+	}
 }
 
 // taskExists checks if a task exists in the database

@@ -80,6 +80,7 @@ func getToolCommands() []ToolCommand {
 				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
 				{Name: "status", Type: "string", Description: "Filter by status (todo, in_progress, done, blocked)", Required: false},
 				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
+				{Name: "format", Type: "string", Description: "Output format (table, markdown, xml)", Required: false},
 				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
 				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
 				{Name: "all", Type: "boolean", Description: "Show all tasks including completed", Required: false},
@@ -231,6 +232,7 @@ func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 	b.WriteString("    actor: tool.schema.string().optional().describe(\"Actor assigned to the task\"),\n")
 	b.WriteString("    reason: tool.schema.string().optional().describe(\"Reason for blocking the task\"),\n")
 	b.WriteString("    minutes: tool.schema.number().optional().describe(\"Timeout duration in minutes\"),\n")
+	b.WriteString("    format: tool.schema.string().optional().describe(\"Output format (table, markdown, xml)\"),\n")
 	b.WriteString("    limit: tool.schema.number().optional().describe(\"Maximum number of tasks to display\"),\n")
 	b.WriteString("    offset: tool.schema.number().optional().describe(\"Number of tasks to skip\"),\n")
 	b.WriteString("    all: tool.schema.boolean().optional().describe(\"Show all tasks including completed\"),\n")
@@ -248,6 +250,7 @@ func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 	b.WriteString("    if (args.actor) cmdArgs.push(\"--actor\", args.actor);\n")
 	b.WriteString("    if (args.reason) cmdArgs.push(\"--reason\", args.reason);\n")
 	b.WriteString("    if (args.minutes !== undefined) cmdArgs.push(\"--minutes\", String(args.minutes));\n")
+	b.WriteString("    if (args.format) cmdArgs.push(\"--format\", args.format);\n")
 	b.WriteString("    if (args.limit !== undefined) cmdArgs.push(\"--limit\", String(args.limit));\n")
 	b.WriteString("    if (args.offset !== undefined) cmdArgs.push(\"--offset\", String(args.offset));\n")
 	b.WriteString("    if (args.all) cmdArgs.push(\"--all\");\n")
