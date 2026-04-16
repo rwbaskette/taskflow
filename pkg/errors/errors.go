@@ -179,6 +179,11 @@ func ValidateID(id string) error {
 
 // ValidateStatus checks if a status value is valid.
 func ValidateStatus(status string) error {
+	// "all" is a special value meaning show all statuses
+	if strings.ToLower(status) == "all" {
+		return nil
+	}
+
 	// Map aliases to canonical status values
 	aliasMap := map[string]string{
 		"pending":     "todo",
@@ -203,7 +208,7 @@ func ValidateStatus(status string) error {
 		return nil
 	}
 
-	validStatuses := []string{"todo", "in_progress", "done", "blocked"}
+	validStatuses := []string{"todo", "in_progress", "done", "blocked", "all"}
 	return ValidationError(
 		"status",
 		fmt.Sprintf("'%s' is not valid", status),

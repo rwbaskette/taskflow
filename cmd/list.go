@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +15,7 @@ import (
 
 var (
 	listFilterMilestone string
+	listFilterSprint    string
 	listFilterStatus    string
 	listFilterActor     string
 	listFilterID        string
@@ -45,8 +47,14 @@ Use --id to get a specific task by its ID.`,
   task list --id task-123`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Handle "all" status filter - clear status filter when "all" is passed
+		listStatusFilter := listFilterStatus
+		if strings.ToLower(listFilterStatus) == "all" {
+			listStatusFilter = ""
+		}
+
 		// Validate filter values
-		if listFilterStatus != "" {
+		if listFilterStatus != "" && strings.ToLower(listFilterStatus) != "all" {
 			if err := cliErrors.ValidateStatus(listFilterStatus); err != nil {
 				cliErrors.HandleError(err)
 				return
@@ -136,7 +144,8 @@ Use --id to get a specific task by its ID.`,
 		// Build filter
 		filter := &service.ListTaskFilter{
 			Milestone: listFilterMilestone,
-			Status:    listFilterStatus,
+			Sprint:    listFilterSprint,
+			Status:    listStatusFilter,
 			Actor:     listFilterActor,
 			ID:        listFilterID,
 			SortBy:    listSortBy,
@@ -163,6 +172,7 @@ func init() {
 
 	listCmd.Flags().BoolVarP(&listAll, "all", "a", false, "Show all tasks including completed")
 	listCmd.Flags().StringVarP(&listFilterMilestone, "milestone", "m", "", "Filter by milestone")
+	listCmd.Flags().StringVarP(&listFilterSprint, "sprint", "r", "", "Filter by sprint")
 	listCmd.Flags().StringVarP(&listFilterStatus, "status", "s", "", "Filter by status")
 	listCmd.Flags().StringVarP(&listFilterActor, "actor", "", "", "Filter by actor")
 	listCmd.Flags().StringVarP(&listFilterID, "id", "", "", "Get task by ID")
@@ -190,6 +200,11 @@ func init() {
 // GetListFilterMilestone returns the milestone filter value
 func GetListFilterMilestone() string {
 	return listFilterMilestone
+}
+
+// GetListFilterSprint returns the sprint filter value
+func GetListFilterSprint() string {
+	return listFilterSprint
 }
 
 // GetListFilterStatus returns the status filter value
@@ -235,6 +250,11 @@ func GetListSortBy() string {
 // SetListFilterMilestone sets the milestone filter value (for testing)
 func SetListFilterMilestone(val string) {
 	listFilterMilestone = val
+}
+
+// SetListFilterSprint sets the sprint filter value (for testing)
+func SetListFilterSprint(val string) {
+	listFilterSprint = val
 }
 
 // SetListFilterStatus sets the status filter value (for testing)

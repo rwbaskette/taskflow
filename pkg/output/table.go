@@ -56,9 +56,9 @@ func (r *TaskTableRenderer) Render(result *service.ListTaskResult) {
 // renderTable renders tasks in table format
 func (r *TaskTableRenderer) renderTable(result *service.ListTaskResult) {
 	fmt.Println()
-	fmt.Printf("%s%-6s %-30s %-15s %-15s %-15s %-15s %-15s %s%s\n",
+	fmt.Printf("%s%-10s %-30s %-12s %-20s %-10s %-15s %-19s %-19s%s\n",
 		ColorBold, "ID", "Title", "Status", "Milestone", "Sprint", "Actor", "Created", "Last Updated", ColorReset)
-	fmt.Println(strings.Repeat("-", 134))
+	fmt.Println(strings.Repeat("-", 140))
 
 	for _, task := range result.Tasks {
 		// Truncate long titles
@@ -73,6 +73,11 @@ func (r *TaskTableRenderer) renderTable(result *service.ListTaskResult) {
 			milestone = "-"
 		}
 
+		// Truncate milestone if too long
+		if len(milestone) > 19 {
+			milestone = milestone[:19] + "..."
+		}
+
 		// Set sprint to "-" if empty
 		sprint := task.Sprint
 		if sprint == "" {
@@ -83,6 +88,11 @@ func (r *TaskTableRenderer) renderTable(result *service.ListTaskResult) {
 		actor := task.Actor
 		if actor == "" {
 			actor = "-"
+		}
+
+		// Truncate actor if too long
+		if len(actor) > 14 {
+			actor = actor[:14] + "..."
 		}
 
 		// Color status based on value
@@ -98,7 +108,7 @@ func (r *TaskTableRenderer) renderTable(result *service.ListTaskResult) {
 			statusColor = ColorBlue
 		}
 
-		fmt.Printf("%-6s %-30s %s%-15s%s %-15s %-15s %-15s %-15s %s\n",
+		fmt.Printf("%-10s %-30s %s%-12s%s %-20s %-10s %-15s %-19s %-19s\n",
 			task.ID,
 			title,
 			statusColor,

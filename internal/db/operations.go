@@ -194,21 +194,24 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 	}
 
 	query := `
-		SELECT id, milestone, title, description, status, actor, last_updated
+		SELECT id, milestone, sprint, title, description, status, actor, created, last_updated
 		FROM tasks
 		WHERE id = ?
 	`
 
 	var t Task
+	var createdStr string
 	var lastUpdatedStr string
 
 	err := db.conn.QueryRow(query, id).Scan(
 		&t.ID,
 		&t.Milestone,
+		&t.Sprint,
 		&t.Title,
 		&t.Description,
 		&t.Status,
 		&t.Actor,
+		&createdStr,
 		&lastUpdatedStr,
 	)
 	if err != nil {
@@ -216,6 +219,11 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 			return nil, NewTaskNotFoundError(id)
 		}
 		return nil, fmt.Errorf("failed to read task: %w", err)
+	}
+
+	t.Created, err = time.Parse(time.RFC3339, createdStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse created: %w", err)
 	}
 
 	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
@@ -237,21 +245,24 @@ func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 	}
 
 	query := `
-		SELECT id, milestone, title, description, status, actor, last_updated
+		SELECT id, milestone, sprint, title, description, status, actor, created, last_updated
 		FROM tasks
 		WHERE id = ?
 	`
 
 	var t Task
+	var createdStr string
 	var lastUpdatedStr string
 
 	err := tx.QueryRow(query, id).Scan(
 		&t.ID,
 		&t.Milestone,
+		&t.Sprint,
 		&t.Title,
 		&t.Description,
 		&t.Status,
 		&t.Actor,
+		&createdStr,
 		&lastUpdatedStr,
 	)
 	if err != nil {
@@ -261,9 +272,14 @@ func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 		return nil, fmt.Errorf("failed to read task in transaction: %w", err)
 	}
 
+	t.Created, err = time.Parse(time.RFC3339, createdStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse created in transaction: %w", err)
+	}
+
 	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse last_updated: %w", err)
+		return nil, fmt.Errorf("failed to parse last_updated in transaction: %w", err)
 	}
 
 	return &t, nil
@@ -378,6 +394,80 @@ func (db *DB) DeleteTask(id string) error {
 	}
 	if rowsAffected == 0 {
 		return NewTaskNotFoundError(id)
+	}
+
+	return nil
+}
+
+// SoftDeleteTask moves a task to the deleted_tasks table with a deleted_on timestamp
+func (db *DB) SoftDeleteTask(id string) error {
+	if db == nil || db.conn == nil {
+		return ErrNilDB
+	}
+
+	if strings.TrimSpace(id) == "" {
+		return ErrInvalidID
+	}
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var t Task
+	var createdStr string
+	var lastUpdatedStr string
+
+	selectQuery := `
+		SELECT id, milestone, sprint, title, description, status, priority, actor, created, last_updated
+		FROM tasks WHERE id = ?
+	`
+	err = tx.QueryRow(selectQuery, id).Scan(
+		&t.ID, &t.Milestone, &t.Sprint, &t.Title, &t.Description,
+		&t.Status, &t.Priority, &t.Actor, &createdStr, &lastUpdatedStr,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return NewTaskNotFoundError(id)
+		}
+		return fmt.Errorf("failed to read task: %w", err)
+	}
+
+	t.Created, _ = time.Parse(time.RFC3339, createdStr)
+	t.LastUpdated, _ = time.Parse(time.RFC3339, lastUpdatedStr)
+	deletedOn := time.Now().UTC()
+
+	insertQuery := `
+		INSERT INTO deleted_tasks (id, milestone, sprint, title, description, status, priority, actor, created, last_updated, deleted_on)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	_, err = tx.Exec(insertQuery,
+		t.ID, t.Milestone, t.Sprint, t.Title, t.Description,
+		t.Status, t.Priority, t.Actor,
+		t.Created.Format(time.RFC3339), t.LastUpdated.Format(time.RFC3339),
+		deletedOn.Format(time.RFC3339),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert into deleted_tasks: %w", err)
+	}
+
+	deleteQuery := `DELETE FROM tasks WHERE id = ?`
+	result, err := tx.Exec(deleteQuery, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete from tasks: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return NewTaskNotFoundError(id)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return nil

@@ -27,7 +27,9 @@ var completeCmd = &cobra.Command{
 This will update the status of the task to completed.
 Use 'task list' to find task IDs.`,
 	Example: `  task complete --id "1"
-  task complete --id "abc123"`,
+  task complete --id "abc123"
+  task complete --id "abc123" --title "New title" --description "New description"
+  task complete --id "abc123" --actor "new-actor" --milestone "M3"`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Validate required ID
