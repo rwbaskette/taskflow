@@ -28,7 +28,7 @@ rather than being permanently removed. Use 'task list' to find task IDs.`,
 			return
 		}
 
-		database, err := db.NewDB("data/tasks.db")
+		database, err := db.NewDB(".taskflow/tasks.db")
 		if err != nil {
 			cliErrors.HandleError(err)
 			return

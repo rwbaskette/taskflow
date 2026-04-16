@@ -70,7 +70,7 @@ For OpenCode to use the tool wrapper, ensure:
 
 ### Database Setup
 
-The application automatically creates the SQLite database at `data/tasks.db` on first run. The database schema includes:
+The application automatically creates the SQLite database at `.taskflow/tasks.db` on first run. The database schema includes:
 
 - `tasks` table with columns: id, title, description, milestone, status, actor, created_at, updated_at
 - `deleted_tasks` table for soft-deleted tasks
@@ -311,7 +311,7 @@ taskflow/
 │   └── *.sh               # Integration test scripts
 ├── tests/
 │   └── integration/       # Integration tests
-└── data/
+└── .taskflow/
     └── tasks.db           # SQLite database
 ```
 

@@ -112,7 +112,7 @@ Use --id to get a specific task by its ID.`,
 		}
 
 		// Initialize database
-		database, err := db.NewDB("data/tasks.db")
+		database, err := db.NewDB(".taskflow/tasks.db")
 		if err != nil {
 			cliErrors.HandleError(err)
 			return

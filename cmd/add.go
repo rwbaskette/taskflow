@@ -51,7 +51,7 @@ After adding a task, use 'task list' to see all tasks.`,
 		}
 
 		// Initialize database
-		database, err := db.NewDB("data/tasks.db")
+		database, err := db.NewDB(".taskflow/tasks.db")
 		if err != nil {
 			cliErrors.HandleError(err)
 			return
