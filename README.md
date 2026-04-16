@@ -1,6 +1,6 @@
 # TaskFlow - Task Management CLI Tool
 
-A command-line interface tool for managing tasks with support for adding, updating, completing, blocking, listing, and resetting tasks. Built with Go using the Cobra framework and SQLite for persistent storage.
+A command-line interface tool for managing tasks with support for adding, updating, completing, blocking, deleting, listing, and resetting tasks. Built with Go using the Cobra framework and SQLite for persistent storage.
 
 ## Overview
 
@@ -10,7 +10,8 @@ TaskFlow is a CLI task management system designed for teams and individuals who 
 - **Update tasks** - Modify existing task properties
 - **Complete tasks** - Mark tasks as done
 - **Block tasks** - Block tasks with a reason for tracking dependencies
-- **List tasks** - View all tasks with filtering, pagination, and multiple output formats
+- **Delete tasks** - Soft delete tasks (moved to deleted_tasks table)
+- **List tasks** - View all tasks with filtering, pagination, sorting, and multiple output formats
 - **Reset timed-out tasks** - Automatically reset tasks that have been in progress too long
 
 ## Installation
@@ -27,18 +28,52 @@ TaskFlow is a CLI task management system designed for teams and individuals who 
 git clone <repository-url>
 cd taskflow
 
+# Download dependencies
+go mod download
+
 # Build the binary
 go build -o taskflow .
-
-# Or use the pre-built binary
-./taskflow
 ```
+
+### Install to PATH
+
+To make `taskflow` available system-wide:
+
+```bash
+# Install the binary to a directory in your PATH
+# Common locations:
+#   ~/.local/bin/       (user-local binaries)
+#   /usr/local/bin/     (system-wide binaries, requires sudo)
+
+# Example: Install to user-local bin
+install -Dm755 taskflow ~/.local/bin/taskflow
+
+# Or for system-wide installation:
+sudo install -Dm755 taskflow /usr/local/bin/taskflow
+```
+
+### OpenCode Tool Wrapper Setup
+
+TaskFlow can be integrated with [OpenCode](https://opencode.ai) as a tool wrapper. Generate the TypeScript wrapper and install it:
+
+```bash
+# Generate and install the tool wrapper to OpenCode's tools directory
+taskflow tool-wrapper > ~/.config/opencode/tools/taskflow.ts
+
+# Or with a custom output path
+taskflow tool-wrapper --output ~/.config/opencode/tools/taskflow.ts
+```
+
+For OpenCode to use the tool wrapper, ensure:
+- The `~/.config/opencode/tools/` directory exists
+- The `taskflow` binary is in your PATH
 
 ### Database Setup
 
 The application automatically creates the SQLite database at `data/tasks.db` on first run. The database schema includes:
 
 - `tasks` table with columns: id, title, description, milestone, status, actor, created_at, updated_at
+- `deleted_tasks` table for soft-deleted tasks
 - Proper indexes for efficient querying by status, milestone, and actor
 
 ## Usage
@@ -134,6 +169,23 @@ taskflow block --id "abc123" -r "Dependency not available"
 
 ---
 
+### Command: delete
+
+Soft delete a task by moving it to the deleted_tasks table.
+
+```bash
+taskflow delete --id "1"
+taskflow delete --id "abc123"
+```
+
+#### Flags
+
+| Flag | Short | Required | Description |
+|------|-------|----------|-------------|
+| `--id` | `-i` | Yes | Task ID to delete |
+
+---
+
 ### Command: list
 
 List all tasks with optional filtering and formatting.
@@ -148,14 +200,22 @@ taskflow list -m "sprint-1"
 # Filter by status and actor
 taskflow list -s pending -a john
 
-# Output as markdown
+# Output as markdown or xml
 taskflow list --format markdown
+taskflow list --format xml
+
+# Sort by field
+taskflow list --sort-by status
+taskflow list --sort-by created
 
 # Pagination
 taskflow list --limit 10 --offset 0
 
 # Include completed tasks
 taskflow list --all
+
+# Get specific task by ID
+taskflow list --id "task-123"
 
 # Combined example
 taskflow list -m "v1.0" -s in_progress --format table --limit 50
@@ -167,9 +227,12 @@ taskflow list -m "v1.0" -s in_progress --format table --limit 50
 |------|-------|---------|-------------|
 | `--all` | `-a` | `false` | Show all tasks including completed |
 | `--milestone` | `-m` | - | Filter by milestone |
+| `--sprint` | `-r` | - | Filter by sprint |
 | `--status` | `-s` | - | Filter by status (todo, in_progress, done, blocked) |
 | `--actor` | - | - | Filter by actor |
-| `--format` | `-f` | `table` | Output format (table\|markdown) |
+| `--id` | - | - | Get specific task by ID |
+| `--sort-by` | - | - | Sort by field (status, priority, milestone, created, updated) |
+| `--format` | `-f` | `table` | Output format (table\|markdown\|xml) |
 | `--limit` | `-l` | `20` | Maximum tasks to display |
 | `--offset` | `-o` | `0` | Number of tasks to skip |
 
@@ -209,22 +272,24 @@ taskflow/
 │   ├── update.go          # Update task command
 │   ├── complete.go        # Complete task command
 │   ├── block.go           # Block task command
+│   ├── delete.go          # Delete task command
 │   ├── list.go            # List tasks command
 │   ├── reset.go           # Reset timed-out tasks command
-│   └── * _test.go         # Unit tests for commands
+│   ├── testutil.go        # Test utilities
+│   └── *_test.go          # Unit tests for commands
 ├── internal/
 │   ├── db/
 │   │   ├── db.go          # Database connection and initialization
 │   │   ├── operations.go  # CRUD operations
 │   │   ├── query_builder.go  # Query building utilities
 │   │   ├── filters.go     # Filtering logic
-│   │   ├── schema.sql     # Database schema
 │   │   └── errors.go      # Database error types
 │   ├── service/
 │   │   ├── add.go         # Add task service logic
 │   │   ├── update.go      # Update task service logic
 │   │   ├── complete.go    # Complete task service logic
 │   │   ├── block.go       # Block task service logic
+│   │   ├── delete.go      # Delete task service logic
 │   │   ├── list.go        # List tasks service logic
 │   │   ├── reset.go       # Reset timed-out service logic
 │   │   ├── timeout.go     # Timeout handling utilities
@@ -234,12 +299,18 @@ taskflow/
 │       └── status.go      # Status validation
 ├── pkg/
 │   ├── output/
-│   │   ├── formatter.go   # Output formatting (table, markdown)
-│   │   └── table.go       # Table renderer
+│   │   ├── formatter.go   # Output formatting (table, markdown, xml)
+│   │   ├── table.go       # Table renderer
+│   │   └── xml.go         # XML renderer
 │   ├── errors/
 │   │   └── errors.go      # Error handling utilities
 │   └── generator/
-│       └── templates.go   # Code generation templates
+│       ├── opencode.go    # OpenCode integration
+│       └── tool.go        # Tool wrapper
+├── scripts/
+│   └── *.sh               # Integration test scripts
+├── tests/
+│   └── integration/       # Integration tests
 └── data/
     └── tasks.db           # SQLite database
 ```
@@ -250,8 +321,9 @@ taskflow/
 - **internal/db/**: Database layer - connection management, queries, schema
 - **internal/service/**: Business logic - task operations, validation, state transitions
 - **internal/validation/**: Input validation - ID format, status values, field constraints
-- **pkg/output/**: Output formatting - table and markdown renderers
+- **pkg/output/**: Output formatting - table, markdown, and xml renderers
 - **pkg/errors/**: Error handling - custom error types and formatting
+- **pkg/generator/**: Code generation and tool integration
 
 ### Database Schema
 
@@ -404,23 +476,38 @@ taskflow reset-timedout --minutes 30
 ### Running Tests
 
 ```bash
-# Unit tests
+# All tests
+go test ./...
+
+# Unit tests for commands
 go test ./cmd/...
+
+# Unit tests for internal packages
 go test ./internal/...
+
+# Unit tests for pkg packages
+go test ./pkg/...
 
 # Integration tests
 go test ./tests/integration/...
-
-# All tests
-go test ./...
 ```
 
 ### Adding New Commands
 
 1. Create `cmd/newcommand.go` with Cobra command definition
-2. Create `internal/service/newcommand.go` with business logic
+2. Create `internal/service/newcommand.go` with business logic (if needed)
 3. Register the command in `cmd/root.go` init()
 4. Add corresponding test files
+
+### Code Linting
+
+```bash
+# Run go vet
+go vet ./...
+
+# Run go fmt
+gofmt -l .
+```
 
 ---
 
