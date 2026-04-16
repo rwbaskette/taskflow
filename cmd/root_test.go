@@ -15,8 +15,8 @@ func TestRootCmdVersion(t *testing.T) {
 }
 
 func TestRootCmdUse(t *testing.T) {
-	if rootCmd.Use != "task" {
-		t.Errorf("Use = %v, want %v", rootCmd.Use, "task")
+	if rootCmd.Use != "taskflow" {
+		t.Errorf("Use = %v, want %v", rootCmd.Use, "taskflow")
 	}
 }
 

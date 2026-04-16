@@ -23,13 +23,13 @@ var toolWrapperCmd = &cobra.Command{
 This command creates TypeScript tool wrappers that wrap the taskflow CLI operations
 for use in the OpenCode environment using the tool() helper format.`,
 	Example: `  # Generate TypeScript tool wrapper for OpenCode integration
-  task tool-wrapper --binary-path task
+  taskflow tool-wrapper
 
   # Generate TypeScript tool wrapper with custom binary name
-  task tool-wrapper --binary-path my-task
+  taskflow tool-wrapper --binary-path my-task
 
   # Generate TypeScript tool wrapper and save to OpenCode tools directory
-  task tool-wrapper --output .opencode/tools/taskflow.ts`,
+  taskflow tool-wrapper --output .opencode/tools/taskflow.ts`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Build options
@@ -87,5 +87,5 @@ func init() {
 	rootCmd.AddCommand(toolWrapperCmd)
 
 	toolWrapperCmd.Flags().StringVarP(&outputFile, "output", "o", "", "Output file path (prints to stdout if not specified)")
-	toolWrapperCmd.Flags().StringVarP(&binaryPath, "binary-path", "b", "task", "Binary path for taskflow command")
+	toolWrapperCmd.Flags().StringVarP(&binaryPath, "binary-path", "b", "taskflow", "Binary path for taskflow command")
 }

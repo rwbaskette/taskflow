@@ -14,7 +14,7 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "task",
+	Use:   "taskflow",
 	Short: "A task management CLI tool",
 	Long: `Task is a CLI tool for managing tasks with support for
 adding, updating, completing, blocking, listing, and resetting tasks.

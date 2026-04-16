@@ -13,7 +13,7 @@ type ToolWrapperOptions struct {
 // DefaultToolWrapperOptions returns default options for tool wrapper generation
 func DefaultToolWrapperOptions() *ToolWrapperOptions {
 	return &ToolWrapperOptions{
-		BinaryPath: "task",
+		BinaryPath: "taskflow",
 	}
 }
 
@@ -87,7 +87,7 @@ func getToolCommands() []ToolCommand {
 			},
 		},
 		{
-			Name:        "reset-timedout",
+			Name:        "reset_timedout",
 			Description: "Reset timed out tasks to todo status. Finds in-progress tasks that have exceeded the specified timeout duration.",
 			Args: []ToolArg{
 				{Name: "minutes", Type: "number", Description: "Timeout duration in minutes (default: 30)", Required: false},
@@ -166,7 +166,7 @@ func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 
 	// Validate binary path
 	if opts.BinaryPath == "" {
-		opts.BinaryPath = "task"
+		opts.BinaryPath = "taskflow"
 	}
 
 	commands := getToolCommands()
@@ -189,11 +189,18 @@ func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 		// Generate execute function
 		b.WriteString("  async execute(args, context) {\n")
 		b.WriteString("    // Build command arguments\n")
-		b.WriteString(fmt.Sprintf("    const cmdArgs = [\"%s\"];\n", cmd.Name))
+		b.WriteString("    const actionMap: Record<string, string> = {\n")
+		b.WriteString("      \"reset_timedout\": \"reset-timedout\",\n")
+		b.WriteString("    };\n")
+		b.WriteString(fmt.Sprintf("    const cmdAction = actionMap[\"%s\"] || \"%s\";\n", cmd.Name, cmd.Name))
+		b.WriteString("    const cmdArgs = [cmdAction];\n")
 
 		// Add arguments
 		for _, arg := range cmd.Args {
-			if arg.Required {
+			if arg.Type == "boolean" {
+				b.WriteString(fmt.Sprintf("    if (args.%s) cmdArgs.push(\"--%s\");\n",
+					arg.Name, arg.Name))
+			} else if arg.Required {
 				b.WriteString(fmt.Sprintf("    if (args.%s) cmdArgs.push(\"--%s\", args.%s);\n",
 					arg.Name, arg.Name, arg.Name))
 			} else {
@@ -202,13 +209,18 @@ func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 			}
 		}
 
+		// Default format to xml for list command
+		if cmd.Name == "list" {
+			b.WriteString("    if (args.format === undefined) cmdArgs.push(\"--format\", \"xml\");\n")
+		}
+
 		// Add exec import and call
 		b.WriteString("\n")
 		b.WriteString("    // Execute taskflow command\n")
-		b.WriteString("    const { execSync } = await import(\"child_process\");\n")
-		b.WriteString(fmt.Sprintf("    const result = execSync(`%s ${cmdArgs.join(\" \")}`,\n", opts.BinaryPath))
-		b.WriteString("      { encoding: \"utf-8\", stdio: [\"pipe\", \"pipe\", \"pipe\"] }\n")
-		b.WriteString("    );\n\n")
+		b.WriteString("    const { execFileSync } = await import(\"child_process\");\n")
+		b.WriteString(fmt.Sprintf("    const result = execFileSync(`%s`, cmdArgs, {\n", opts.BinaryPath))
+		b.WriteString("      encoding: \"utf-8\", stdio: [\"pipe\", \"pipe\", \"pipe\"]\n")
+		b.WriteString("    });\n\n")
 		b.WriteString("    return result;\n")
 		b.WriteString("  },\n")
 		b.WriteString("});\n")
@@ -219,11 +231,11 @@ func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 		}
 	}
 
-	// Generate combined tool that accepts a command parameter
-	b.WriteString("// Combined tool that routes to specific commands based on 'command' parameter\nexport const taskflowTool = tool({\n")
-	b.WriteString("  description: \"TaskFlow CLI - Manage tasks with add, update, complete, block, list, and reset-timedout commands\",\n")
+	// Generate combined tool that accepts an action parameter
+	b.WriteString("// Combined tool that routes to specific commands based on 'action' parameter\nexport const taskflowTool = tool({\n")
+	b.WriteString("  description: \"TaskFlow CLI - Manage tasks with add, update, complete, block, list, and reset_timedout commands\",\n")
 	b.WriteString("  args: {\n")
-	b.WriteString("    command: tool.schema.enum([\"add\", \"update\", \"complete\", \"block\", \"list\", \"reset-timedout\"]).describe(\"The taskflow command to execute\"),\n")
+	b.WriteString("    action: tool.schema.enum([\"add\", \"update\", \"complete\", \"block\", \"list\", \"reset_timedout\"]).describe(\"The taskflow command to execute\"),\n")
 	b.WriteString("    id: tool.schema.string().optional().describe(\"Task ID\"),\n")
 	b.WriteString("    title: tool.schema.string().optional().describe(\"Task title\"),\n")
 	b.WriteString("    description: tool.schema.string().optional().describe(\"Task description\"),\n")
@@ -236,33 +248,50 @@ func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 	b.WriteString("    limit: tool.schema.number().optional().describe(\"Maximum number of tasks to display\"),\n")
 	b.WriteString("    offset: tool.schema.number().optional().describe(\"Number of tasks to skip\"),\n")
 	b.WriteString("    all: tool.schema.boolean().optional().describe(\"Show all tasks including completed\"),\n")
+	b.WriteString("    filter_milestone: tool.schema.string().optional().describe(\"Filter list by milestone\"),\n")
+	b.WriteString("    filter_status: tool.schema.string().optional().describe(\"Filter list by status\"),\n")
+	b.WriteString("    filter_actor: tool.schema.string().optional().describe(\"Filter list by actor\"),\n")
+	b.WriteString("    formatted: tool.schema.boolean().optional().describe(\"Output as markdown table for list action\"),\n")
 	b.WriteString("  },\n")
 	b.WriteString("  async execute(args, context) {\n")
-	b.WriteString("    const { execSync } = await import(\"child_process\");\n")
-	b.WriteString("    const cmdArgs = [args.command];\n")
+	b.WriteString("    const actionMap: Record<string, string> = {\n")
+	b.WriteString("      \"reset_timedout\": \"reset-timedout\",\n")
+	b.WriteString("    };\n")
+	b.WriteString("    const cmdAction = actionMap[args.action] || args.action;\n")
+	b.WriteString("    const cmdArgs = [cmdAction];\n")
 	b.WriteString("\n")
 	b.WriteString("    // Add optional arguments\n")
 	b.WriteString("    if (args.id) cmdArgs.push(\"--id\", args.id);\n")
 	b.WriteString("    if (args.title) cmdArgs.push(\"--title\", args.title);\n")
 	b.WriteString("    if (args.description) cmdArgs.push(\"--description\", args.description);\n")
-	b.WriteString("    if (args.milestone) cmdArgs.push(\"--milestone\", args.milestone);\n")
-	b.WriteString("    if (args.status) cmdArgs.push(\"--status\", args.status);\n")
-	b.WriteString("    if (args.actor) cmdArgs.push(\"--actor\", args.actor);\n")
 	b.WriteString("    if (args.reason) cmdArgs.push(\"--reason\", args.reason);\n")
 	b.WriteString("    if (args.minutes !== undefined) cmdArgs.push(\"--minutes\", String(args.minutes));\n")
 	b.WriteString("    if (args.format) cmdArgs.push(\"--format\", args.format);\n")
+	b.WriteString("    if (args.action === \"list\" && !args.format) cmdArgs.push(\"--format\", \"xml\");\n")
 	b.WriteString("    if (args.limit !== undefined) cmdArgs.push(\"--limit\", String(args.limit));\n")
 	b.WriteString("    if (args.offset !== undefined) cmdArgs.push(\"--offset\", String(args.offset));\n")
 	b.WriteString("    if (args.all) cmdArgs.push(\"--all\");\n")
+	b.WriteString("    if (args.formatted) cmdArgs.push(\"--formatted\");\n")
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("    const result = execSync(`%s ${cmdArgs.join(\" \")}`,\n", opts.BinaryPath))
+	b.WriteString("    // Action-specific arguments\n")
+	b.WriteString("    if (args.action === \"list\") {\n")
+	b.WriteString("      if (args.filter_milestone) cmdArgs.push(\"--milestone\", args.filter_milestone);\n")
+	b.WriteString("      if (args.filter_status) cmdArgs.push(\"--status\", args.filter_status);\n")
+	b.WriteString("      if (args.filter_actor) cmdArgs.push(\"--actor\", args.filter_actor);\n")
+	b.WriteString("    } else {\n")
+	b.WriteString("      if (args.milestone) cmdArgs.push(\"--milestone\", args.milestone);\n")
+	b.WriteString("      if (args.status) cmdArgs.push(\"--status\", args.status);\n")
+	b.WriteString("      if (args.actor) cmdArgs.push(\"--actor\", args.actor);\n")
+	b.WriteString("    }\n")
+	b.WriteString("    // Execute taskflow command\n")
+	b.WriteString("    const { execFileSync } = await import(\"child_process\");\n")
+	b.WriteString(fmt.Sprintf("    const result = execFileSync(`%s`, cmdArgs,\n", opts.BinaryPath))
 	b.WriteString("      { encoding: \"utf-8\", stdio: [\"pipe\", \"pipe\", \"pipe\"] }\n")
 	b.WriteString("    );\n\n")
 	b.WriteString("    return result;\n")
 	b.WriteString("  },\n")
 	b.WriteString("});\n\n")
-
-	// Export default
+	b.WriteString("// Export default\n")
 	b.WriteString("export default taskflowTool;\n")
 
 	return b.String(), nil

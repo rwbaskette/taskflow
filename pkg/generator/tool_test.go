@@ -15,7 +15,7 @@ func TestGenerateToolWrapper(t *testing.T) {
 		{
 			name: "default options",
 			opts: &ToolWrapperOptions{
-				BinaryPath: "task",
+				BinaryPath: "taskflow",
 			},
 			wantContains: "export const addTool = tool({",
 			wantErr:      false,
@@ -25,13 +25,13 @@ func TestGenerateToolWrapper(t *testing.T) {
 			opts: &ToolWrapperOptions{
 				BinaryPath: "myapp",
 			},
-			wantContains: "myapp ${cmdArgs.join",
+			wantContains: "execFileSync(`myapp`",
 			wantErr:      false,
 		},
 		{
 			name:         "nil options uses defaults",
 			opts:         nil,
-			wantContains: "task ${cmdArgs.join",
+			wantContains: "execFileSync(`taskflow`",
 			wantErr:      false,
 		},
 		{
@@ -39,7 +39,7 @@ func TestGenerateToolWrapper(t *testing.T) {
 			opts: &ToolWrapperOptions{
 				BinaryPath: "",
 			},
-			wantContains: "task ${cmdArgs.join",
+			wantContains: "execFileSync(`taskflow`",
 			wantErr:      false,
 		},
 	}
@@ -157,7 +157,7 @@ func TestGenerateToolWrapperContainsExecuteFunction(t *testing.T) {
 
 func TestGenerateToolWrapperProducesValidOutput(t *testing.T) {
 	opts := &ToolWrapperOptions{
-		BinaryPath: "task",
+		BinaryPath: "taskflow",
 	}
 
 	result, err := GenerateToolWrapper(opts)
@@ -176,13 +176,13 @@ func TestGenerateToolWrapperProducesValidOutput(t *testing.T) {
 		{"export const completeTool = tool({", "complete tool definition"},
 		{"export const blockTool = tool({", "block tool definition"},
 		{"export const listTool = tool({", "list tool definition"},
-		{"export const resettimedoutTool = tool({", "reset-timedout tool definition"},
+		{"export const reset_timedoutTool = tool({", "reset_timedout tool definition"},
 		{"export const taskflowTool = tool({", "combined taskflow tool definition"},
 		{"description:", "description field"},
 		{"args: {", "args object start"},
 		{"async execute(args, context)", "execute function"},
 		{"const cmdArgs = [", "command args array"},
-		{"execSync", "execSync call"},
+		{"execFileSync", "execFileSync call"},
 		{"export default taskflowTool", "default export"},
 	}
 
@@ -203,8 +203,8 @@ func TestGenerateToolWrapperWithCustomBinaryPath(t *testing.T) {
 		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
 	}
 
-	// Verify custom binary path is used in execSync calls
-	if !strings.Contains(result, "custom-task-cli ${cmdArgs.join") {
+	// Verify custom binary path is used in execFileSync calls
+	if !strings.Contains(result, "execFileSync(`custom-task-cli`") {
 		t.Error("GenerateToolWrapper() should use custom binary path")
 	}
 }
@@ -223,7 +223,7 @@ func TestGenerateToolWrapperContainsAllCommands(t *testing.T) {
 		"completeTool",
 		"blockTool",
 		"listTool",
-		"resettimedoutTool",
+		"reset_timedoutTool",
 		"taskflowTool",
 	}
 
@@ -282,8 +282,8 @@ func TestGenerateToolWrapperSchemaTypes(t *testing.T) {
 func TestDefaultToolWrapperOptions(t *testing.T) {
 	opts := DefaultToolWrapperOptions()
 
-	if opts.BinaryPath != "task" {
-		t.Errorf("DefaultToolWrapperOptions() BinaryPath = %v, want task", opts.BinaryPath)
+	if opts.BinaryPath != "taskflow" {
+		t.Errorf("DefaultToolWrapperOptions() BinaryPath = %v, want taskflow", opts.BinaryPath)
 	}
 }
 
@@ -371,7 +371,7 @@ func TestGenerateToolWrapperCombinedTool(t *testing.T) {
 	// Verify combined tool has all command options
 	combinedChecks := []string{
 		"taskflowTool = tool({",
-		"command: tool.schema.enum(",
+		"action: tool.schema.enum(",
 		"args.id",
 		"args.title",
 		"args.description",

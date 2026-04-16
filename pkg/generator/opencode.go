@@ -65,7 +65,7 @@ type OpenCodeOptions struct {
 // DefaultOpenCodeOptions returns default options for OpenCode generation
 func DefaultOpenCodeOptions() *OpenCodeOptions {
 	return &OpenCodeOptions{
-		BinaryName: "task",
+		BinaryName: "taskflow",
 		WorkingDir: ".",
 	}
 }
