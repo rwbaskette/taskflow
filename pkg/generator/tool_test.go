@@ -17,7 +17,7 @@ func TestGenerateToolWrapper(t *testing.T) {
 			opts: &ToolWrapperOptions{
 				BinaryPath: "taskflow",
 			},
-			wantContains: "export const addTool = tool({",
+			wantContains: "export const taskflow_addTool = tool({",
 			wantErr:      false,
 		},
 		{
@@ -171,19 +171,26 @@ func TestGenerateToolWrapperProducesValidOutput(t *testing.T) {
 		desc    string
 	}{
 		{"import { tool } from \"@opencode-ai/plugin\"", "tool import"},
-		{"export const addTool = tool({", "add tool definition"},
-		{"export const updateTool = tool({", "update tool definition"},
-		{"export const completeTool = tool({", "complete tool definition"},
-		{"export const blockTool = tool({", "block tool definition"},
-		{"export const listTool = tool({", "list tool definition"},
-		{"export const reset_timedoutTool = tool({", "reset_timedout tool definition"},
-		{"export const taskflowTool = tool({", "combined taskflow tool definition"},
+		{"export const taskflow_addTool = tool({", "add tool definition"},
+		{"export const taskflow_updateTool = tool({", "update tool definition"},
+		{"export const taskflow_completeTool = tool({", "complete tool definition"},
+		{"export const taskflow_blockTool = tool({", "block tool definition"},
+		{"export const taskflow_listTool = tool({", "list tool definition"},
+		{"export const taskflow_reset_timedoutTool = tool({", "reset_timedout tool definition"},
 		{"description:", "description field"},
 		{"args: {", "args object start"},
 		{"async execute(args, context)", "execute function"},
 		{"const cmdArgs = [", "command args array"},
 		{"execFileSync", "execFileSync call"},
-		{"export default taskflowTool", "default export"},
+		// Enum-based tools
+		{"export const taskflow_list_format_tableTool = tool({", "list_format_table tool definition"},
+		{"export const taskflow_list_format_markdownTool = tool({", "list_format_markdown tool definition"},
+		{"export const taskflow_list_format_xmlTool = tool({", "list_format_xml tool definition"},
+		{"export const taskflow_list_status_todoTool = tool({", "list_status_todo tool definition"},
+		{"export const taskflow_list_status_in_progressTool = tool({", "list_status_in_progress tool definition"},
+		{"export const taskflow_list_status_doneTool = tool({", "list_status_done tool definition"},
+		{"export const taskflow_list_status_blockedTool = tool({", "list_status_blocked tool definition"},
+		{"export const taskflow_sprint_completeTool = tool({", "sprint_complete tool definition"},
 	}
 
 	for _, check := range checks {
@@ -216,15 +223,15 @@ func TestGenerateToolWrapperContainsAllCommands(t *testing.T) {
 		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
 	}
 
-	// All 6 individual tools plus the combined tool
+	// Individual command tools
 	commandNames := []string{
-		"addTool",
-		"updateTool",
-		"completeTool",
-		"blockTool",
-		"listTool",
-		"reset_timedoutTool",
-		"taskflowTool",
+		"taskflow_addTool",
+		"taskflow_updateTool",
+		"taskflow_completeTool",
+		"taskflow_blockTool",
+		"taskflow_listTool",
+		"taskflow_reset_timedoutTool",
+		"taskflow_sprint_completeTool",
 	}
 
 	for _, cmd := range commandNames {
@@ -353,41 +360,51 @@ func TestGenerateToolWrapperHandlesDashesInCommandNames(t *testing.T) {
 		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
 	}
 
-	// Verify that dashes are handled (reset-timedout -> resetTimedout)
-	if strings.Contains(result, "resetTimedoutTool") {
-		// This is the expected behavior - dashes removed for valid JS identifier
-	} else if strings.Contains(result, "reset-timedoutTool") {
-		t.Error("Command name with dashes should be converted to valid JS identifier")
+	// Verify that underscores are preserved (reset_timedout -> taskflow_reset_timedout)
+	if strings.Contains(result, "taskflow_reset_timedoutTool") {
+		// This is the expected behavior - underscores preserved
+	} else if strings.Contains(result, "taskflow_resetTimedoutTool") {
+		t.Error("Command name with underscores should be preserved")
 	}
 }
 
-func TestGenerateToolWrapperCombinedTool(t *testing.T) {
+func TestGenerateToolWrapperEnumSchemas(t *testing.T) {
 	opts := DefaultToolWrapperOptions()
 	result, err := GenerateToolWrapper(opts)
 	if err != nil {
 		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
 	}
 
-	// Verify combined tool has all command options
-	combinedChecks := []string{
-		"taskflowTool = tool({",
-		"action: tool.schema.enum(",
-		"args.id",
-		"args.title",
-		"args.description",
-		"args.milestone",
-		"args.status",
-		"args.actor",
-		"args.reason",
-		"args.minutes",
-		"args.limit",
-		"args.offset",
-		"args.all",
+	// Verify enum schemas for format and status are present
+	enumChecks := []string{
+		"tool.schema.enum([\"table\", \"markdown\", \"xml\"])",
+		"tool.schema.enum([\"todo\", \"in_progress\", \"done\", \"blocked\"])",
 	}
 
-	for _, check := range combinedChecks {
+	for _, check := range enumChecks {
 		if !strings.Contains(result, check) {
-			t.Errorf("GenerateToolWrapper() combined tool missing: %s", check)
+			t.Errorf("GenerateToolWrapper() missing enum schema: %s", check)
+		}
+	}
+}
+
+func TestGenerateToolWrapperSprintTools(t *testing.T) {
+	opts := DefaultToolWrapperOptions()
+	result, err := GenerateToolWrapper(opts)
+	if err != nil {
+		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+	}
+
+	// Verify sprint tools are present
+	sprintChecks := []string{
+		"export const taskflow_sprint_completeTool = tool({",
+		"export const taskflow_list_format_xmlTool = tool({",
+		"export const taskflow_list_status_blockedTool = tool({",
+	}
+
+	for _, check := range sprintChecks {
+		if !strings.Contains(result, check) {
+			t.Errorf("GenerateToolWrapper() missing sprint tool: %s", check)
 		}
 	}
 }
