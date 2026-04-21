@@ -34,7 +34,7 @@ var listCmd = &cobra.Command{
 You can filter by milestone, status, or actor to find specific tasks.
 Use the --all flag to include completed tasks in the listing.
 Use --format to choose output format (table, markdown, or xml).
-Use --sort-by to sort by status, priority, milestone, created, or updated.
+Use --sort-by to sort by status, priority, milestone, created, updated, id, sprint, title, description, or actor.
 Use --id to get a specific task by its ID.`,
 	Example: `  task list
   task list -m "sprint-1"
@@ -44,6 +44,8 @@ Use --id to get a specific task by its ID.`,
   task list --all
   task list --sort-by status
   task list --sort-by created
+  task list --sort-by title
+  task list --sort-by actor
   task list --id task-123`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -72,16 +74,21 @@ Use --id to get a specific task by its ID.`,
 		// Validate sort by
 		if listSortBy != "" {
 			validSortBy := map[string]bool{
-				"status":    true,
-				"priority":  true,
-				"milestone": true,
-				"created":   true,
-				"updated":   true,
+				"status":      true,
+				"priority":    true,
+				"milestone":   true,
+				"created":     true,
+				"updated":     true,
+				"id":          true,
+				"sprint":      true,
+				"title":       true,
+				"description": true,
+				"actor":       true,
 			}
 			if !validSortBy[listSortBy] {
 				cliErrors.HandleError(cliErrors.ValidationError("sort-by",
 					fmt.Sprintf("'%s' is not valid", listSortBy),
-					fmt.Sprintf("Valid sort values: status, priority, milestone, created, updated")))
+					fmt.Sprintf("Valid sort values: status, priority, milestone, created, updated, id, sprint, title, description, actor")))
 				return
 			}
 		}

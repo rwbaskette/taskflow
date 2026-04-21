@@ -207,6 +207,9 @@ taskflow list --format xml
 # Sort by field
 taskflow list --sort-by status
 taskflow list --sort-by created
+taskflow list --sort-by title
+taskflow list --sort-by actor
+taskflow list --sort-by id
 
 # Pagination
 taskflow list --limit 10 --offset 0
@@ -231,7 +234,7 @@ taskflow list -m "v1.0" -s in_progress --format table --limit 50
 | `--status` | `-s` | - | Filter by status (todo, in_progress, done, blocked) |
 | `--actor` | - | - | Filter by actor |
 | `--id` | - | - | Get specific task by ID |
-| `--sort-by` | - | - | Sort by field (status, priority, milestone, created, updated) |
+| `--sort-by` | - | - | Sort by field (status, priority, milestone, created, updated, id, sprint, title, description, actor) |
 | `--format` | `-f` | `table` | Output format (table\|markdown\|xml) |
 | `--limit` | `-l` | `20` | Maximum tasks to display |
 | `--offset` | `-o` | `0` | Number of tasks to skip |

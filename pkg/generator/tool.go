@@ -21,17 +21,22 @@ const (
 )
 
 const (
-	SortByStatus    = "status"
-	SortByPriority  = "priority"
-	SortByMilestone = "milestone"
-	SortByCreated   = "created"
-	SortByUpdated   = "updated"
-	ValidSortBy     = "status, priority, milestone, created, updated"
+	SortByStatus      = "status"
+	SortByPriority    = "priority"
+	SortByMilestone   = "milestone"
+	SortByCreated     = "created"
+	SortByUpdated     = "updated"
+	SortByID          = "id"
+	SortBySprint      = "sprint"
+	SortByTitle       = "title"
+	SortByDescription = "description"
+	SortByActor       = "actor"
+	ValidSortBy       = "status, priority, milestone, created, updated, id, sprint, title, description, actor"
 )
 
 var validFormatValues = []string{FormatTable, FormatMarkdown, FormatXML}
 var validStatusValues = []string{StatusTodo, StatusInProgress, StatusDone, StatusBlocked}
-var validSortByValues = []string{SortByStatus, SortByPriority, SortByMilestone, SortByCreated, SortByUpdated}
+var validSortByValues = []string{SortByStatus, SortByPriority, SortByMilestone, SortByCreated, SortByUpdated, SortByID, SortBySprint, SortByTitle, SortByDescription, SortByActor}
 
 // ToolWrapperOptions contains options for tool wrapper generation
 type ToolWrapperOptions struct {

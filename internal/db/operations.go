@@ -26,16 +26,21 @@ type Task struct {
 type SortBy string
 
 const (
-	SortByStatus    SortBy = "status"
-	SortByPriority  SortBy = "priority"
-	SortByMilestone SortBy = "milestone"
-	SortByCreated   SortBy = "created"
-	SortByUpdated   SortBy = "updated"
+	SortByStatus      SortBy = "status"
+	SortByPriority    SortBy = "priority"
+	SortByMilestone   SortBy = "milestone"
+	SortByCreated     SortBy = "created"
+	SortByUpdated     SortBy = "updated"
+	SortByID          SortBy = "id"
+	SortBySprint      SortBy = "sprint"
+	SortByTitle       SortBy = "title"
+	SortByDescription SortBy = "description"
+	SortByActor       SortBy = "actor"
 )
 
 // ValidSortByValues returns all valid sort by values
 func ValidSortByValues() []string {
-	return []string{"status", "priority", "milestone", "created", "updated"}
+	return []string{"status", "priority", "milestone", "created", "updated", "id", "sprint", "title", "description", "actor"}
 }
 
 // TaskFilter contains optional filters for listing tasks
@@ -795,6 +800,16 @@ func getSortOrder(sortBy SortBy) string {
 		return " ORDER BY created DESC"
 	case SortByUpdated:
 		return " ORDER BY last_updated DESC"
+	case SortByID:
+		return " ORDER BY id ASC"
+	case SortBySprint:
+		return " ORDER BY sprint ASC"
+	case SortByTitle:
+		return " ORDER BY title ASC"
+	case SortByDescription:
+		return " ORDER BY description ASC"
+	case SortByActor:
+		return " ORDER BY actor ASC"
 	default:
 		return " ORDER BY last_updated DESC"
 	}

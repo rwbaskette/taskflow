@@ -918,3 +918,122 @@ func TestMultipleTasksInSequence(t *testing.T) {
 		t.Errorf("expected 3 done tasks, got %d", len(doneResult.Tasks))
 	}
 }
+
+// TestListTasksSortBy tests sorting of tasks by various fields
+func TestListTasksSortBy(t *testing.T) {
+	cfg := setupTestDB(t)
+	defer teardownTestDB(t, cfg)
+
+	tasks := []struct {
+		id          string
+		title       string
+		actor       string
+		milestone   string
+		status      string
+		description string
+	}{
+		{"sort-001", "Alpha Task", "alice", "v1.0", "todo", "Description A"},
+		{"sort-002", "Beta Task", "bob", "v2.0", "in_progress", "Description B"},
+		{"sort-003", "Gamma Task", "alice", "v1.0", "done", "Description C"},
+		{"sort-004", "Delta Task", "charlie", "v2.0", "blocked", "Description D"},
+	}
+
+	for _, task := range tasks {
+		input := &service.AddTaskInput{
+			ID:          task.id,
+			Title:       task.title,
+			Actor:       task.actor,
+			Milestone:   task.milestone,
+			Description: task.description,
+		}
+		_, err := service.AddTask(cfg.DB, input)
+		if err != nil {
+			t.Fatalf("failed to create task %s: %v", task.id, err)
+		}
+
+		if task.status != "todo" {
+			updateInput := &service.UpdateTaskInput{
+				ID:     task.id,
+				Status: task.status,
+			}
+			_, err = service.UpdateTask(cfg.DB, updateInput)
+			if err != nil {
+				t.Fatalf("failed to update task %s status: %v", task.id, err)
+			}
+		}
+	}
+
+	listSvc := service.NewListService(cfg.DB)
+
+	// Test sort by title
+	result, err := listSvc.ListTasks(&service.ListTaskFilter{SortBy: "title"})
+	if err != nil {
+		t.Fatalf("ListTasks sort by title failed: %v", err)
+	}
+	if len(result.Tasks) != 4 {
+		t.Fatalf("expected 4 tasks, got %d", len(result.Tasks))
+	}
+	if result.Tasks[0].Title != "Alpha Task" {
+		t.Errorf("expected first task title 'Alpha Task', got '%s'", result.Tasks[0].Title)
+	}
+	if result.Tasks[3].Title != "Gamma Task" {
+		t.Errorf("expected last task title 'Gamma Task', got '%s'", result.Tasks[3].Title)
+	}
+
+	// Test sort by actor
+	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "actor"})
+	if err != nil {
+		t.Fatalf("ListTasks sort by actor failed: %v", err)
+	}
+	if result.Tasks[0].Actor != "alice" {
+		t.Errorf("expected first task actor 'alice', got '%s'", result.Tasks[0].Actor)
+	}
+
+	// Test sort by status
+	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "status"})
+	if err != nil {
+		t.Fatalf("ListTasks sort by status failed: %v", err)
+	}
+	if len(result.Tasks) != 4 {
+		t.Fatalf("expected 4 tasks, got %d", len(result.Tasks))
+	}
+
+	// Test sort by milestone
+	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "milestone"})
+	if err != nil {
+		t.Fatalf("ListTasks sort by milestone failed: %v", err)
+	}
+	if len(result.Tasks) != 4 {
+		t.Fatalf("expected 4 tasks, got %d", len(result.Tasks))
+	}
+
+	// Test sort by id
+	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "id"})
+	if err != nil {
+		t.Fatalf("ListTasks sort by id failed: %v", err)
+	}
+	if result.Tasks[0].ID != "sort-001" {
+		t.Errorf("expected first task id 'sort-001', got '%s'", result.Tasks[0].ID)
+	}
+	if result.Tasks[3].ID != "sort-004" {
+		t.Errorf("expected last task id 'sort-004', got '%s'", result.Tasks[3].ID)
+	}
+
+	// Test sort by description
+	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "description"})
+	if err != nil {
+		t.Fatalf("ListTasks sort by description failed: %v", err)
+	}
+	if len(result.Tasks) != 4 {
+		t.Fatalf("expected 4 tasks, got %d", len(result.Tasks))
+	}
+
+	// Test sort by sprint (empty for all tasks, should still work)
+	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "sprint"})
+	if err != nil {
+		t.Fatalf("ListTasks sort by sprint failed: %v", err)
+	}
+	if len(result.Tasks) != 4 {
+		t.Fatalf("expected 4 tasks, got %d", len(result.Tasks))
+	}
+}
