@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL DEFAULT 'todo',
     priority INTEGER DEFAULT 0,
     actor TEXT,
+    blocked_by TEXT,
     created TEXT NOT NULL,
     last_updated TEXT NOT NULL
 );
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS deleted_tasks (
     status TEXT NOT NULL,
     priority INTEGER DEFAULT 0,
     actor TEXT,
+    blocked_by TEXT,
     created TEXT NOT NULL,
     last_updated TEXT NOT NULL,
     deleted_on TEXT NOT NULL

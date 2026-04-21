@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -10,47 +11,17 @@ import (
 	cliErrors "github.com/user/project/pkg/errors"
 )
 
-var (
-	addTitle       string
-	addDescription string
-	addMilestone   string
-	addActor       string
-	addID          string
-)
+var addJSON string
 
 var addCmd = &cobra.Command{
-	Use:   "add",
-	Short: "Add a new task",
-	Long: `Add a new task to the task list.
-
-The id, milestone, title and description are required.
-After adding a task, use 'task list' to see all tasks.`,
-	Example: `  task add --id "1" --title "Implement login feature" --milestone "v1.0" --description "Add login functionality"
-  task add --id "2" --title "Fix memory leak" --description "Memory leak in data processing" --milestone "v2.0"
-  task add --id "3" --title "Deploy to production" --milestone "v2.0 Release" --actor "devops"`,
-	Args: cobra.NoArgs,
+	Use:     "add",
+	Short:   "Add a new task",
+	Long:    "Add a new task to the task list.\n\nThe task can be specified as a JSON document via argument or stdin.\nFields: id, milestone, title, description, actor (all fields except description are required).",
+	Example: `  task add '{"id":"1","title":"Implement login","milestone":"v1","description":"Add login"}'
+  echo '{"id":"2","title":"Fix bug","milestone":"v1","description":"Fix memory leak"}' | task add -
+  task add -`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// Validate required fields
-		if err := cliErrors.ValidateID(addID); err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
-		if err := cliErrors.ValidateMilestone(addMilestone); err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
-		if err := cliErrors.ValidateTitle(addTitle); err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
-
-		// Description is required
-		if addDescription == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("description", "--description is required"))
-			return
-		}
-
-		// Initialize database
 		database, err := db.NewDB(".taskflow/tasks.db")
 		if err != nil {
 			cliErrors.HandleError(err)
@@ -58,16 +29,52 @@ After adding a task, use 'task list' to see all tasks.`,
 		}
 		defer database.Close()
 
-		// Create input
-		input := &service.AddTaskInput{
-			ID:          addID,
-			Milestone:   addMilestone,
-			Title:       addTitle,
-			Description: addDescription,
-			Actor:       addActor,
+		jsonArg := addJSON
+		if jsonArg == "" && len(args) > 0 {
+			jsonArg = args[0]
+		}
+		if jsonArg == "" {
+			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
+			return
 		}
 
-		// Add task
+		doc, err := service.ParseJSONFromArg(jsonArg)
+		if err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+
+		id, _ := service.GetStringFieldTrim(doc, "id")
+		milestone, _ := service.GetStringFieldTrim(doc, "milestone")
+		title, _ := service.GetStringFieldTrim(doc, "title")
+		description, _ := service.GetStringFieldTrim(doc, "description")
+		actor, _ := service.GetStringFieldTrim(doc, "actor")
+
+		if err := cliErrors.ValidateID(id); err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+		if err := cliErrors.ValidateMilestone(milestone); err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+		if err := cliErrors.ValidateTitle(title); err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+		if description == "" {
+			cliErrors.HandleError(cliErrors.MissingArgumentError("description", "description is required in JSON document"))
+			return
+		}
+
+		input := &service.AddTaskInput{
+			ID:          id,
+			Milestone:   milestone,
+			Title:       title,
+			Description: description,
+			Actor:       actor,
+		}
+
 		result, err := service.AddTask(database, input)
 		if err != nil {
 			cliErrors.HandleError(err)
@@ -89,9 +96,9 @@ After adding a task, use 'task list' to see all tasks.`,
 func init() {
 	rootCmd.AddCommand(addCmd)
 
-	addCmd.Flags().StringVarP(&addID, "id", "i", "", "Task ID (required)")
-	addCmd.Flags().StringVarP(&addTitle, "title", "t", "", "Task title (required)")
-	addCmd.Flags().StringVarP(&addDescription, "description", "d", "", "Task description (required)")
-	addCmd.Flags().StringVarP(&addMilestone, "milestone", "m", "", "Milestone for the task (required)")
-	addCmd.Flags().StringVarP(&addActor, "actor", "a", "", "Actor assigned to the task")
+	if os.Getenv("TF_TEST_STDIN") == "1" {
+		addCmd.Flags().StringVarP(&addJSON, "json", "j", "", "JSON document (use '-' for stdin)")
+	} else {
+		addCmd.Flags().StringVarP(&addJSON, "json", "j", "", "JSON document (use '-' for stdin)")
+	}
 }

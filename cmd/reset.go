@@ -10,30 +10,41 @@ import (
 	cliErrors "github.com/user/project/pkg/errors"
 )
 
-var resetTimeoutMinutes int
+var resetJSON string
 
 var resetCmd = &cobra.Command{
-	Use:   "reset-timedout",
-	Short: "Reset timed out tasks to todo status",
-	Long: `Find in-progress tasks that have exceeded the specified timeout duration
-and reset them to todo status.
-
-This command scans all tasks currently in "in_progress" status and resets
-any that have been in that state longer than the specified timeout.
-
-Use the --minutes flag to specify the timeout duration in minutes.`,
-	Example: `  task reset-timedout --minutes 30
-  task reset-timedout --minutes 60
-  task reset-timedout -m 45`,
-	Args: cobra.NoArgs,
+	Use:     "reset-timedout",
+	Short:   "Reset timed out tasks to todo status",
+	Long:    "Find in-progress tasks that have exceeded the specified timeout duration and reset them to todo status.\n\nThis command scans all tasks currently in 'in_progress' status and resets any that have been in that state longer than the specified timeout.",
+	Example: `  task reset-timedout '{"minutes":30}'
+  echo '{"minutes":60}' | task reset-timedout -
+  task reset-timedout -`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// Validate timeout minutes
+		jsonArg := resetJSON
+		if jsonArg == "" && len(args) > 0 {
+			jsonArg = args[0]
+		}
+		if jsonArg == "" {
+			jsonArg = "{}"
+		}
+
+		doc, err := service.ParseJSONFromArg(jsonArg)
+		if err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+
+		resetTimeoutMinutes := 30
+		if v, ok := service.GetNumberField(doc, "minutes"); ok {
+			resetTimeoutMinutes = int(v)
+		}
+
 		if resetTimeoutMinutes <= 0 {
 			cliErrors.HandleError(fmt.Errorf("timeout minutes must be a positive integer"))
 			return
 		}
 
-		// Initialize database
 		database, err := db.NewDB(".taskflow/tasks.db")
 		if err != nil {
 			cliErrors.HandleError(err)
@@ -41,19 +52,16 @@ Use the --minutes flag to specify the timeout duration in minutes.`,
 		}
 		defer database.Close()
 
-		// Create reset service input
 		input := service.ResetTimedOutInput{
 			TimeoutMinutes: resetTimeoutMinutes,
 		}
 
-		// Execute reset timed out operation
 		result, err := service.ResetTimedOut(database, input)
 		if err != nil {
 			cliErrors.HandleError(err)
 			return
 		}
 
-		// Log affected tasks
 		if len(result.ResetTasks) == 0 {
 			fmt.Println("No tasks were timed out.")
 			return
@@ -72,5 +80,5 @@ Use the --minutes flag to specify the timeout duration in minutes.`,
 func init() {
 	rootCmd.AddCommand(resetCmd)
 
-	resetCmd.Flags().IntVarP(&resetTimeoutMinutes, "minutes", "m", 30, "Timeout duration in minutes")
+	resetCmd.Flags().StringVarP(&resetJSON, "json", "j", "", "JSON document (use '-' for stdin)")
 }

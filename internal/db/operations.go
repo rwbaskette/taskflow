@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -18,6 +19,7 @@ type Task struct {
 	Status      string    `json:"status"`
 	Priority    int       `json:"priority,omitempty"`
 	Actor       string    `json:"actor,omitempty"`
+	BlockedBy   []string  `json:"blocked_by,omitempty"`
 	Created     time.Time `json:"created"`
 	LastUpdated time.Time `json:"last_updated"`
 }
@@ -111,9 +113,11 @@ func (db *DB) CreateTask(t *Task) error {
 		t.LastUpdated = time.Now().UTC()
 	}
 
+	blockedByJSON, _ := json.Marshal(t.BlockedBy)
+
 	query := `
-		INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, created, last_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = db.conn.Exec(query,
@@ -124,6 +128,7 @@ func (db *DB) CreateTask(t *Task) error {
 		t.Description,
 		t.Status,
 		t.Actor,
+		string(blockedByJSON),
 		t.Created.Format(time.RFC3339),
 		t.LastUpdated.Format(time.RFC3339),
 	)
@@ -165,9 +170,11 @@ func (db *DB) CreateTaskTx(tx *sql.Tx, t *Task) error {
 		t.LastUpdated = time.Now().UTC()
 	}
 
+	blockedByJSON, _ := json.Marshal(t.BlockedBy)
+
 	query := `
-		INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, created, last_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = tx.Exec(query,
@@ -178,6 +185,7 @@ func (db *DB) CreateTaskTx(tx *sql.Tx, t *Task) error {
 		t.Description,
 		t.Status,
 		t.Actor,
+		string(blockedByJSON),
 		t.Created.Format(time.RFC3339),
 		t.LastUpdated.Format(time.RFC3339),
 	)
@@ -199,7 +207,7 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 	}
 
 	query := `
-		SELECT id, milestone, sprint, title, description, status, actor, created, last_updated
+		SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated
 		FROM tasks
 		WHERE id = ?
 	`
@@ -207,6 +215,7 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 	var t Task
 	var createdStr string
 	var lastUpdatedStr string
+	var blockedByStr string
 
 	err := db.conn.QueryRow(query, id).Scan(
 		&t.ID,
@@ -216,9 +225,13 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 		&t.Description,
 		&t.Status,
 		&t.Actor,
+		&blockedByStr,
 		&createdStr,
 		&lastUpdatedStr,
 	)
+	if blockedByStr != "" {
+		json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
+	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, NewTaskNotFoundError(id)
@@ -250,7 +263,7 @@ func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 	}
 
 	query := `
-		SELECT id, milestone, sprint, title, description, status, actor, created, last_updated
+		SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated
 		FROM tasks
 		WHERE id = ?
 	`
@@ -258,6 +271,7 @@ func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 	var t Task
 	var createdStr string
 	var lastUpdatedStr string
+	var blockedByStr string
 
 	err := tx.QueryRow(query, id).Scan(
 		&t.ID,
@@ -267,9 +281,13 @@ func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 		&t.Description,
 		&t.Status,
 		&t.Actor,
+		&blockedByStr,
 		&createdStr,
 		&lastUpdatedStr,
 	)
+	if blockedByStr != "" {
+		json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
+	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, NewTaskNotFoundError(id)
@@ -303,9 +321,11 @@ func (db *DB) UpdateTask(t *Task) error {
 	// Always update LastUpdated to current time
 	t.LastUpdated = time.Now().UTC()
 
+	blockedByJSON, _ := json.Marshal(t.BlockedBy)
+
 	query := `
 		UPDATE tasks
-		SET milestone = ?, title = ?, description = ?, status = ?, actor = ?, last_updated = ?
+		SET milestone = ?, title = ?, description = ?, status = ?, actor = ?, blocked_by = ?, last_updated = ?
 		WHERE id = ?
 	`
 
@@ -315,6 +335,7 @@ func (db *DB) UpdateTask(t *Task) error {
 		t.Description,
 		t.Status,
 		t.Actor,
+		string(blockedByJSON),
 		t.LastUpdated.Format(time.RFC3339),
 		t.ID,
 	)
@@ -346,9 +367,11 @@ func (db *DB) UpdateTaskTx(tx *sql.Tx, t *Task) error {
 	// Always update LastUpdated to current time
 	t.LastUpdated = time.Now().UTC()
 
+	blockedByJSON, _ := json.Marshal(t.BlockedBy)
+
 	query := `
 		UPDATE tasks
-		SET milestone = ?, title = ?, description = ?, status = ?, actor = ?, last_updated = ?
+		SET milestone = ?, title = ?, description = ?, status = ?, actor = ?, blocked_by = ?, last_updated = ?
 		WHERE id = ?
 	`
 
@@ -358,6 +381,7 @@ func (db *DB) UpdateTaskTx(tx *sql.Tx, t *Task) error {
 		t.Description,
 		t.Status,
 		t.Actor,
+		string(blockedByJSON),
 		t.LastUpdated.Format(time.RFC3339),
 		t.ID,
 	)
@@ -423,14 +447,15 @@ func (db *DB) SoftDeleteTask(id string) error {
 	var t Task
 	var createdStr string
 	var lastUpdatedStr string
+	var blockedByStr string
 
 	selectQuery := `
-		SELECT id, milestone, sprint, title, description, status, priority, actor, created, last_updated
+		SELECT id, milestone, sprint, title, description, status, priority, actor, blocked_by, created, last_updated
 		FROM tasks WHERE id = ?
 	`
 	err = tx.QueryRow(selectQuery, id).Scan(
 		&t.ID, &t.Milestone, &t.Sprint, &t.Title, &t.Description,
-		&t.Status, &t.Priority, &t.Actor, &createdStr, &lastUpdatedStr,
+		&t.Status, &t.Priority, &t.Actor, &blockedByStr, &createdStr, &lastUpdatedStr,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -438,18 +463,23 @@ func (db *DB) SoftDeleteTask(id string) error {
 		}
 		return fmt.Errorf("failed to read task: %w", err)
 	}
+	if blockedByStr != "" {
+		json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
+	}
 
 	t.Created, _ = time.Parse(time.RFC3339, createdStr)
 	t.LastUpdated, _ = time.Parse(time.RFC3339, lastUpdatedStr)
 	deletedOn := time.Now().UTC()
 
+	blockedByJSON, _ := json.Marshal(t.BlockedBy)
+
 	insertQuery := `
-		INSERT INTO deleted_tasks (id, milestone, sprint, title, description, status, priority, actor, created, last_updated, deleted_on)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO deleted_tasks (id, milestone, sprint, title, description, status, priority, actor, blocked_by, created, last_updated, deleted_on)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err = tx.Exec(insertQuery,
 		t.ID, t.Milestone, t.Sprint, t.Title, t.Description,
-		t.Status, t.Priority, t.Actor,
+		t.Status, t.Priority, t.Actor, string(blockedByJSON),
 		t.Created.Format(time.RFC3339), t.LastUpdated.Format(time.RFC3339),
 		deletedOn.Format(time.RFC3339),
 	)
@@ -489,7 +519,7 @@ func (db *DB) GetTaskByID(id string) (*Task, error) {
 	}
 
 	query := `
-		SELECT id, milestone, sprint, title, description, status, actor, created, last_updated
+		SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated
 		FROM tasks
 		WHERE id = ?
 	`
@@ -497,6 +527,7 @@ func (db *DB) GetTaskByID(id string) (*Task, error) {
 	var t Task
 	var createdStr string
 	var lastUpdatedStr string
+	var blockedByStr string
 
 	err := db.conn.QueryRow(query, id).Scan(
 		&t.ID,
@@ -506,9 +537,13 @@ func (db *DB) GetTaskByID(id string) (*Task, error) {
 		&t.Description,
 		&t.Status,
 		&t.Actor,
+		&blockedByStr,
 		&createdStr,
 		&lastUpdatedStr,
 	)
+	if blockedByStr != "" {
+		json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
+	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, NewTaskNotFoundError(id)
@@ -564,7 +599,7 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 	}
 
 	// Build query with filters
-	query := "SELECT id, milestone, sprint, title, description, status, actor, created, last_updated FROM tasks WHERE 1=1"
+	query := "SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated FROM tasks WHERE 1=1"
 	args := []interface{}{}
 
 	if filter.Milestone != "" {
@@ -625,6 +660,7 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 		var t Task
 		var createdStr string
 		var lastUpdatedStr string
+		var blockedByStr string
 
 		err := rows.Scan(
 			&t.ID,
@@ -634,11 +670,15 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 			&t.Description,
 			&t.Status,
 			&t.Actor,
+			&blockedByStr,
 			&createdStr,
 			&lastUpdatedStr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
+		}
+		if blockedByStr != "" {
+			json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
 		}
 
 		t.Created, err = time.Parse(time.RFC3339, createdStr)
@@ -673,7 +713,7 @@ func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
 	}
 
 	// Build query with filters
-	query := "SELECT id, milestone, sprint, title, description, status, actor, created, last_updated FROM tasks WHERE 1=1"
+	query := "SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated FROM tasks WHERE 1=1"
 	args := []interface{}{}
 
 	if filter.Milestone != "" {
@@ -733,6 +773,7 @@ func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
 		var t Task
 		var createdStr string
 		var lastUpdatedStr string
+		var blockedByStr string
 
 		err := rows.Scan(
 			&t.ID,
@@ -742,11 +783,15 @@ func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
 			&t.Description,
 			&t.Status,
 			&t.Actor,
+			&blockedByStr,
 			&createdStr,
 			&lastUpdatedStr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
+		}
+		if blockedByStr != "" {
+			json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
 		}
 
 		t.Created, err = time.Parse(time.RFC3339, createdStr)

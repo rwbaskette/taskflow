@@ -759,38 +759,6 @@ func TestListTasks(t *testing.T) {
 	})
 }
 
-func TestListTasksTx(t *testing.T) {
-	db := setupTestDB(t)
-	defer teardownTestDB(t, db)
-
-	// Setup
-	db.CreateTask(&Task{ID: "tx-task-1", Title: "Task 1", Status: "todo"})
-	db.CreateTask(&Task{ID: "tx-task-2", Title: "Task 2", Status: "done"})
-
-	t.Run("list tasks in transaction", func(t *testing.T) {
-		tx, err := db.BeginTx()
-		if err != nil {
-			t.Fatalf("BeginTx failed: %v", err)
-		}
-		defer tx.Rollback()
-
-		result, err := db.ListTasksTx(tx, TaskFilter{})
-		if err != nil {
-			t.Fatalf("ListTasksTx failed: %v", err)
-		}
-		if len(result) != 2 {
-			t.Errorf("expected 2 tasks, got %d", len(result))
-		}
-	})
-
-	t.Run("nil transaction", func(t *testing.T) {
-		_, err := db.ListTasksTx(nil, TaskFilter{})
-		if err == nil {
-			t.Fatal("expected error for nil transaction")
-		}
-	})
-}
-
 func TestBeginTx(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(t, db)

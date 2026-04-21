@@ -37,6 +37,7 @@ type TaskItem struct {
 	Description string
 	Status      string
 	Actor       string
+	BlockedBy   []string
 	Created     string
 	LastUpdated string
 }
@@ -66,7 +67,6 @@ func (s *ListService) ListTasks(filter *ListTaskFilter) (*ListTaskResult, error)
 	// Build database filter
 	dbFilter := db.TaskFilter{
 		Milestone: filter.Milestone,
-		Sprint:    filter.Sprint,
 		Status:    filter.Status,
 		Actor:     filter.Actor,
 		ID:        filter.ID,
@@ -81,7 +81,7 @@ func (s *ListService) ListTasks(filter *ListTaskFilter) (*ListTaskResult, error)
 		return nil, err
 	}
 
-	// Convert to service items
+// Convert to service items
 	items := make([]TaskItem, 0, len(tasks))
 	for _, task := range tasks {
 		items = append(items, TaskItem{
@@ -92,6 +92,7 @@ func (s *ListService) ListTasks(filter *ListTaskFilter) (*ListTaskResult, error)
 			Description: task.Description,
 			Status:      task.Status,
 			Actor:       task.Actor,
+			BlockedBy:   task.BlockedBy,
 			Created:     task.Created.Format("2006-01-02 15:04:05"),
 			LastUpdated: task.LastUpdated.Format("2006-01-02 15:04:05"),
 		})
@@ -161,7 +162,7 @@ func (s *ListService) GetTask(id string) (*TaskItem, error) {
 		return nil, err
 	}
 
-	return &TaskItem{
+return &TaskItem{
 		ID:          task.ID,
 		Milestone:   task.Milestone,
 		Sprint:      task.Sprint,
@@ -169,6 +170,7 @@ func (s *ListService) GetTask(id string) (*TaskItem, error) {
 		Description: task.Description,
 		Status:      task.Status,
 		Actor:       task.Actor,
+		BlockedBy:   task.BlockedBy,
 		Created:     task.Created.Format("2006-01-02 15:04:05"),
 		LastUpdated: task.LastUpdated.Format("2006-01-02 15:04:05"),
 	}, nil

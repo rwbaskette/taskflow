@@ -10,20 +10,35 @@ import (
 	cliErrors "github.com/user/project/pkg/errors"
 )
 
-var deleteID string
+var deleteJSON string
 
 var deleteCmd = &cobra.Command{
-	Use:   "delete",
-	Short: "Soft delete a task",
-	Long: `Soft delete a task by moving it to the deleted_tasks table.
-
-The task is moved to a deleted_tasks table with a deleted_on timestamp
-rather than being permanently removed. Use 'task list' to find task IDs.`,
-	Example: `  task delete --id "1"
-  task delete --id "abc123"`,
-	Args: cobra.NoArgs,
+	Use:     "delete",
+	Short:   "Soft delete a task",
+	Long:    "Soft delete a task by moving it to the deleted_tasks table.\n\nThe task is moved to a deleted_tasks table with a deleted_on timestamp rather than being permanently removed. Use 'task list' to find task IDs.",
+	Example: `  task delete '{"id":"1"}'
+  echo '{"id":"abc123"}' | task delete -
+  task delete -`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := cliErrors.ValidateID(deleteID); err != nil {
+		jsonArg := deleteJSON
+		if jsonArg == "" && len(args) > 0 {
+			jsonArg = args[0]
+		}
+		if jsonArg == "" {
+			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
+			return
+		}
+
+		doc, err := service.ParseJSONFromArg(jsonArg)
+		if err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+
+		id, _ := service.GetStringFieldTrim(doc, "id")
+
+		if err := cliErrors.ValidateID(id); err != nil {
 			cliErrors.HandleError(err)
 			return
 		}
@@ -36,7 +51,7 @@ rather than being permanently removed. Use 'task list' to find task IDs.`,
 		defer database.Close()
 
 		input := &service.DeleteTaskInput{
-			ID: deleteID,
+			ID: id,
 		}
 
 		result, err := service.DeleteTask(database, input)
@@ -55,9 +70,5 @@ rather than being permanently removed. Use 'task list' to find task IDs.`,
 func init() {
 	rootCmd.AddCommand(deleteCmd)
 
-	deleteCmd.Flags().StringVarP(&deleteID, "id", "i", "", "Task ID (required)")
-
-	if err := deleteCmd.MarkFlagRequired("id"); err != nil {
-		_ = err
-	}
+	deleteCmd.Flags().StringVarP(&deleteJSON, "json", "j", "", "JSON document (use '-' for stdin)")
 }

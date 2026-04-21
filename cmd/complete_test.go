@@ -8,9 +8,6 @@ import (
 
 // Helper to set up a clean command for testing
 func setupCompleteCommand() *cobra.Command {
-	// Reset global variables before each test
-	completeID = ""
-
 	return completeCmd
 }
 
@@ -46,20 +43,18 @@ func TestCompleteCmdArgs(t *testing.T) {
 func TestCompleteCmdFlags(t *testing.T) {
 	cmd := setupCompleteCommand()
 
-	// Check that all expected flags exist
 	flags := cmd.Flags()
-	if flags.Lookup("id") == nil {
-		t.Error("Expected 'id' flag to exist")
+	if flags.Lookup("json") == nil {
+		t.Error("Expected 'json' flag to exist")
 	}
 }
 
 func TestCompleteCmdFlagShorthands(t *testing.T) {
 	cmd := setupCompleteCommand()
 
-	// Check flag shorthand
-	idFlag := cmd.Flags().Lookup("id")
-	if idFlag != nil && idFlag.Shorthand != "i" {
-		t.Errorf("Expected 'id' shorthand to be 'i', got %s", idFlag.Shorthand)
+	jsonFlag := cmd.Flags().Lookup("json")
+	if jsonFlag != nil && jsonFlag.Shorthand != "j" {
+		t.Errorf("Expected 'json' shorthand to be 'j', got %s", jsonFlag.Shorthand)
 	}
 }
 
@@ -93,9 +88,9 @@ func TestCompleteCmdHasSubcommands(t *testing.T) {
 func TestCompleteCmdFlagDescriptions(t *testing.T) {
 	cmd := setupCompleteCommand()
 
-	idFlag := cmd.Flags().Lookup("id")
-	if idFlag != nil && idFlag.Usage == "" {
-		t.Error("ID flag should have usage description")
+	jsonFlag := cmd.Flags().Lookup("json")
+	if jsonFlag != nil && jsonFlag.Usage == "" {
+		t.Error("JSON flag should have usage description")
 	}
 }
 
@@ -161,34 +156,23 @@ func TestCompleteCmdSilenceErrors(t *testing.T) {
 }
 
 func TestCompleteValidationRequiredFlags(t *testing.T) {
-	// Test that required flags are properly configured
-	tests := []struct {
-		name   string
-		flag   string
-		exists bool
-	}{
-		{"ID flag", "id", true},
-	}
+	cmd := setupCompleteCommand()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cmd := setupCompleteCommand()
-			flag := cmd.Flags().Lookup(tt.flag)
-
-			if tt.exists && flag == nil {
-				t.Errorf("Expected flag '%s' to exist", tt.flag)
-			}
-			if !tt.exists && flag != nil {
-				t.Errorf("Expected flag '%s' to not exist", tt.flag)
-			}
-		})
+	flag := cmd.Flags().Lookup("json")
+	if flag == nil {
+		t.Error("Expected 'json' flag to exist")
 	}
 }
 
 func TestCompleteFlagDefaults(t *testing.T) {
-	// Check default values for flags
-	flag := completeCmd.Flags().Lookup("id")
-	if flag != nil && flag.DefValue != "" {
-		t.Logf("Default value for 'id' = %v", flag.DefValue)
+	cmd := setupCompleteCommand()
+
+	flag := cmd.Flags().Lookup("json")
+	if flag == nil {
+		t.Skip("Flag 'json' not found")
+	}
+
+	if flag.DefValue != "" {
+		t.Logf("Default value for 'json' = %v", flag.DefValue)
 	}
 }

@@ -8,9 +8,6 @@ import (
 
 // Helper to set up a clean command for testing
 func setupResetCommand() *cobra.Command {
-	// Reset global variables before each test
-	resetTimeoutMinutes = 30
-
 	return resetCmd
 }
 
@@ -37,7 +34,6 @@ func TestResetCmdLong(t *testing.T) {
 
 func TestResetCmdArgs(t *testing.T) {
 	cmd := setupResetCommand()
-	// resetCmd should accept NoArgs
 	if cmd.Args == nil {
 		t.Error("Expected Args validator to be set")
 	}
@@ -46,20 +42,18 @@ func TestResetCmdArgs(t *testing.T) {
 func TestResetCmdFlags(t *testing.T) {
 	cmd := setupResetCommand()
 
-	// Check that all expected flags exist
 	flags := cmd.Flags()
-	if flags.Lookup("minutes") == nil {
-		t.Error("Expected 'minutes' flag to exist")
+	if flags.Lookup("json") == nil {
+		t.Error("Expected 'json' flag to exist")
 	}
 }
 
 func TestResetCmdFlagShorthands(t *testing.T) {
 	cmd := setupResetCommand()
 
-	// Check flag shorthand
-	minutesFlag := cmd.Flags().Lookup("minutes")
-	if minutesFlag != nil && minutesFlag.Shorthand != "m" {
-		t.Errorf("Expected 'minutes' shorthand to be 'm', got %s", minutesFlag.Shorthand)
+	jsonFlag := cmd.Flags().Lookup("json")
+	if jsonFlag != nil && jsonFlag.Shorthand != "j" {
+		t.Errorf("Expected 'json' shorthand to be 'j', got %s", jsonFlag.Shorthand)
 	}
 }
 
@@ -93,9 +87,9 @@ func TestResetCmdHasSubcommands(t *testing.T) {
 func TestResetCmdFlagDescriptions(t *testing.T) {
 	cmd := setupResetCommand()
 
-	minutesFlag := cmd.Flags().Lookup("minutes")
-	if minutesFlag != nil && minutesFlag.Usage == "" {
-		t.Error("Minutes flag should have usage description")
+	jsonFlag := cmd.Flags().Lookup("json")
+	if jsonFlag != nil && jsonFlag.Usage == "" {
+		t.Error("json flag should have usage description")
 	}
 }
 
@@ -161,13 +155,12 @@ func TestResetCmdSilenceErrors(t *testing.T) {
 }
 
 func TestResetValidationFlags(t *testing.T) {
-	// Test that minutes flag is properly configured
 	tests := []struct {
 		name   string
 		flag   string
 		exists bool
 	}{
-		{"Minutes flag", "minutes", true},
+		{"json flag", "json", true},
 	}
 
 	for _, tt := range tests {
@@ -182,34 +175,5 @@ func TestResetValidationFlags(t *testing.T) {
 				t.Errorf("Expected flag '%s' to not exist", tt.flag)
 			}
 		})
-	}
-}
-
-func TestResetFlagDefaults(t *testing.T) {
-	cmd := setupResetCommand()
-
-	minutesFlag := cmd.Flags().Lookup("minutes")
-	if minutesFlag == nil {
-		t.Fatal("Expected 'minutes' flag to exist")
-	}
-
-	// Check default value is 30
-	defaultVal := minutesFlag.DefValue
-	if defaultVal != "30" {
-		t.Errorf("Default value = %v, want %v", defaultVal, "30")
-	}
-}
-
-func TestResetFlagType(t *testing.T) {
-	cmd := setupResetCommand()
-
-	minutesFlag := cmd.Flags().Lookup("minutes")
-	if minutesFlag == nil {
-		t.Fatal("Expected 'minutes' flag to exist")
-	}
-
-	// Check that it's an int type
-	if minutesFlag.Value.Type() != "int" {
-		t.Errorf("Flag type = %v, want %v", minutesFlag.Value.Type(), "int")
 	}
 }

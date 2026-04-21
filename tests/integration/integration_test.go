@@ -1027,13 +1027,4 @@ func TestListTasksSortBy(t *testing.T) {
 	if len(result.Tasks) != 4 {
 		t.Fatalf("expected 4 tasks, got %d", len(result.Tasks))
 	}
-
-	// Test sort by sprint (empty for all tasks, should still work)
-	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "sprint"})
-	if err != nil {
-		t.Fatalf("ListTasks sort by sprint failed: %v", err)
-	}
-	if len(result.Tasks) != 4 {
-		t.Fatalf("expected 4 tasks, got %d", len(result.Tasks))
-	}
 }

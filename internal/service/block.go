@@ -22,6 +22,7 @@ type BlockTaskResult struct {
 	Description string
 	Actor       string
 	Status      string
+	BlockedBy   []string
 	LastUpdated time.Time
 }
 
@@ -54,14 +55,23 @@ func BlockTask(database *db.DB, input BlockTaskInput) (*BlockTaskResult, error) 
 	}
 	newDescription += fmt.Sprintf("[BLOCKED: %s]", input.Reason)
 
+	// Build blocked_by list - add the reason as a blocker entry
+	blockedBy := existingTask.BlockedBy
+	if blockedBy == nil {
+		blockedBy = []string{}
+	}
+	blockedBy = append(blockedBy, input.Reason)
+
 	// Update task status to blocked and append reason to description
 	updatedTask := &db.Task{
 		ID:          existingTask.ID,
 		Milestone:   existingTask.Milestone,
+		Sprint:      existingTask.Sprint,
 		Title:       existingTask.Title,
 		Description: newDescription,
 		Actor:       existingTask.Actor,
 		Status:      "blocked",
+		BlockedBy:   blockedBy,
 		LastUpdated: time.Now().UTC(),
 	}
 
@@ -78,6 +88,7 @@ func BlockTask(database *db.DB, input BlockTaskInput) (*BlockTaskResult, error) 
 		Description: updatedTask.Description,
 		Actor:       updatedTask.Actor,
 		Status:      updatedTask.Status,
+		BlockedBy:   updatedTask.BlockedBy,
 		LastUpdated: updatedTask.LastUpdated,
 	}, nil
 }

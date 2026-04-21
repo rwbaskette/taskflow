@@ -8,10 +8,6 @@ import (
 
 // Helper to set up a clean command for testing
 func setupBlockCommand() *cobra.Command {
-	// Reset global variables before each test
-	blockID = ""
-	blockReason = ""
-
 	return blockCmd
 }
 
@@ -47,27 +43,18 @@ func TestBlockCmdArgs(t *testing.T) {
 func TestBlockCmdFlags(t *testing.T) {
 	cmd := setupBlockCommand()
 
-	// Check that all expected flags exist
 	flags := cmd.Flags()
-	if flags.Lookup("id") == nil {
-		t.Error("Expected 'id' flag to exist")
-	}
-	if flags.Lookup("reason") == nil {
-		t.Error("Expected 'reason' flag to exist")
+	if flags.Lookup("json") == nil {
+		t.Error("Expected 'json' flag to exist")
 	}
 }
 
 func TestBlockCmdFlagShorthands(t *testing.T) {
 	cmd := setupBlockCommand()
 
-	// Check flag shorthands
-	idFlag := cmd.Flags().Lookup("id")
-	if idFlag != nil && idFlag.Shorthand != "i" {
-		t.Errorf("Expected 'id' shorthand to be 'i', got %s", idFlag.Shorthand)
-	}
-	reasonFlag := cmd.Flags().Lookup("reason")
-	if reasonFlag != nil && reasonFlag.Shorthand != "r" {
-		t.Errorf("Expected 'reason' shorthand to be 'r', got %s", reasonFlag.Shorthand)
+	jsonFlag := cmd.Flags().Lookup("json")
+	if jsonFlag != nil && jsonFlag.Shorthand != "j" {
+		t.Errorf("Expected 'json' shorthand to be 'j', got %s", jsonFlag.Shorthand)
 	}
 }
 
@@ -101,14 +88,9 @@ func TestBlockCmdHasSubcommands(t *testing.T) {
 func TestBlockCmdFlagDescriptions(t *testing.T) {
 	cmd := setupBlockCommand()
 
-	idFlag := cmd.Flags().Lookup("id")
-	if idFlag != nil && idFlag.Usage == "" {
-		t.Error("ID flag should have usage description")
-	}
-
-	reasonFlag := cmd.Flags().Lookup("reason")
-	if reasonFlag != nil && reasonFlag.Usage == "" {
-		t.Error("Reason flag should have usage description")
+	jsonFlag := cmd.Flags().Lookup("json")
+	if jsonFlag != nil && jsonFlag.Usage == "" {
+		t.Error("JSON flag should have usage description")
 	}
 }
 
@@ -174,53 +156,23 @@ func TestBlockCmdSilenceErrors(t *testing.T) {
 }
 
 func TestBlockValidationRequiredFlags(t *testing.T) {
-	// Test that required flags are properly configured
-	tests := []struct {
-		name   string
-		flag   string
-		exists bool
-	}{
-		{"ID flag", "id", true},
-		{"Reason flag", "reason", true},
-	}
+	cmd := setupBlockCommand()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cmd := setupBlockCommand()
-			flag := cmd.Flags().Lookup(tt.flag)
-
-			if tt.exists && flag == nil {
-				t.Errorf("Expected flag '%s' to exist", tt.flag)
-			}
-			if !tt.exists && flag != nil {
-				t.Errorf("Expected flag '%s' to not exist", tt.flag)
-			}
-		})
+	flag := cmd.Flags().Lookup("json")
+	if flag == nil {
+		t.Error("Expected 'json' flag to exist")
 	}
 }
 
 func TestBlockFlagDefaults(t *testing.T) {
-	// Check default values for flags
-	tests := []struct {
-		name     string
-		flag     string
-		defValue string
-	}{
-		{"ID default", "id", ""},
-		{"Reason default", "reason", ""},
+	cmd := setupBlockCommand()
+
+	flag := cmd.Flags().Lookup("json")
+	if flag == nil {
+		t.Skip("Flag 'json' not found")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			flag := blockCmd.Flags().Lookup(tt.flag)
-
-			if flag == nil {
-				t.Skipf("Flag '%s' not found", tt.flag)
-			}
-
-			if flag.DefValue != tt.defValue {
-				t.Logf("Default value for '%s' = %v (checking %v)", tt.flag, flag.DefValue, tt.defValue)
-			}
-		})
+	if flag.DefValue != "" {
+		t.Logf("Default value for 'json' = %v", flag.DefValue)
 	}
 }

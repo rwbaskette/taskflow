@@ -10,70 +10,17 @@ import (
 	cliErrors "github.com/user/project/pkg/errors"
 )
 
-var (
-	updateID          string
-	updateTitle       string
-	updateDescription string
-	updateStatus      string
-	updateActor       string
-	updateMilestone   string
-)
+var updateJSON string
 
 var updateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Update an existing task",
-	Long: `Update an existing task by its ID.
-
-You can update the title, description, status, milestone, and/or actor.
-At least one update field must be provided.`,
-	Example: `  task update --id "1" --title "New title"
-  task update --id "abc" --description "Updated description" --milestone "v2.0"
-  task update --id "1" --status "in_progress" --actor "new-owner"
-  task update --id "1" --milestone "v2.0" --description "New description"`,
-	Args: cobra.NoArgs,
+	Use:     "update",
+	Short:   "Update an existing task",
+	Long:    "Update an existing task by its ID.\n\nThe update can be specified as a JSON document via argument or stdin.\nFields: id (required), title, description, status, milestone, actor.",
+	Example: `  task update '{"id":"1","title":"New title"}'
+  echo '{"id":"1","status":"in_progress"}' | task update -
+  task update -`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// Validate required ID
-		if err := cliErrors.ValidateID(updateID); err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
-
-		// Validate optional fields (only if provided)
-		if updateTitle != "" {
-			if err := cliErrors.ValidateTitle(updateTitle); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
-
-		if updateMilestone != "" {
-			if err := cliErrors.ValidateMilestone(updateMilestone); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
-
-		if updateActor != "" {
-			if err := cliErrors.ValidateActor(updateActor); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
-
-		if updateStatus != "" {
-			if err := cliErrors.ValidateStatus(updateStatus); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
-
-		// Check that at least one update field is provided
-		if updateTitle == "" && updateDescription == "" && updateStatus == "" && updateMilestone == "" && updateActor == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("update field", "at least one of --title, --description, --status, --milestone, or --actor is required"))
-			return
-		}
-
-		// Initialize database
 		database, err := db.NewDB(".taskflow/tasks.db")
 		if err != nil {
 			cliErrors.HandleError(err)
@@ -81,17 +28,72 @@ At least one update field must be provided.`,
 		}
 		defer database.Close()
 
-		// Create input
-		input := &service.UpdateTaskInput{
-			ID:          updateID,
-			Title:       updateTitle,
-			Description: updateDescription,
-			Milestone:   updateMilestone,
-			Status:      updateStatus,
-			Actor:       updateActor,
+		jsonArg := updateJSON
+		if jsonArg == "" && len(args) > 0 {
+			jsonArg = args[0]
+		}
+		if jsonArg == "" {
+			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
+			return
 		}
 
-		// Update task
+		doc, err := service.ParseJSONFromArg(jsonArg)
+		if err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+
+		id, _ := service.GetStringFieldTrim(doc, "id")
+		title, hasTitle := service.GetStringField(doc, "title")
+		description, hasDesc := service.GetStringField(doc, "description")
+		status, hasStatus := service.GetStringField(doc, "status")
+		milestone, hasMilestone := service.GetStringField(doc, "milestone")
+		actor, hasActor := service.GetStringField(doc, "actor")
+
+		if err := cliErrors.ValidateID(id); err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+
+		if hasTitle {
+			if err := cliErrors.ValidateTitle(title); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+		if hasMilestone {
+			if err := cliErrors.ValidateMilestone(milestone); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+		if hasActor {
+			if err := cliErrors.ValidateActor(actor); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+		if hasStatus {
+			if err := cliErrors.ValidateStatus(status); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+
+		if !hasTitle && !hasDesc && !hasStatus && !hasMilestone && !hasActor {
+			cliErrors.HandleError(cliErrors.MissingArgumentError("update field", "at least one of title, description, status, milestone, or actor is required in JSON"))
+			return
+		}
+
+		input := &service.UpdateTaskInput{
+			ID:          id,
+			Title:       title,
+			Description: description,
+			Milestone:   milestone,
+			Status:      status,
+			Actor:       actor,
+		}
+
 		result, err := service.UpdateTask(database, input)
 		if err != nil {
 			cliErrors.HandleError(err)
@@ -113,16 +115,5 @@ At least one update field must be provided.`,
 func init() {
 	rootCmd.AddCommand(updateCmd)
 
-	updateCmd.Flags().StringVarP(&updateID, "id", "i", "", "Task ID (required)")
-	updateCmd.Flags().StringVarP(&updateTitle, "title", "t", "", "New task title")
-	updateCmd.Flags().StringVarP(&updateDescription, "description", "d", "", "New task description")
-	updateCmd.Flags().StringVarP(&updateStatus, "status", "s", "", "New task status (todo, in_progress, done, blocked)")
-	updateCmd.Flags().StringVarP(&updateMilestone, "milestone", "m", "", "New milestone for the task")
-	updateCmd.Flags().StringVarP(&updateActor, "actor", "a", "", "New actor assigned to the task")
-
-	// Mark ID as required
-	if err := updateCmd.MarkFlagRequired("id"); err != nil {
-		// Log but don't fail - MarkFlagRequired can fail if flag doesn't exist
-		_ = err
-	}
+	updateCmd.Flags().StringVarP(&updateJSON, "json", "j", "", "JSON document (use '-' for stdin)")
 }

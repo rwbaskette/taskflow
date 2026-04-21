@@ -10,64 +10,17 @@ import (
 	cliErrors "github.com/user/project/pkg/errors"
 )
 
-var (
-	completeID          string
-	completeTitle       string
-	completeDescription string
-	completeMilestone   string
-	completeStatus      string
-	completeActor       string
-)
+var completeJSON string
 
 var completeCmd = &cobra.Command{
-	Use:   "complete",
-	Short: "Mark a task as completed",
-	Long: `Mark a task as completed by providing its ID.
-
-This will update the status of the task to completed.
-Use 'task list' to find task IDs.`,
-	Example: `  task complete --id "1"
-  task complete --id "abc123"
-  task complete --id "abc123" --title "New title" --description "New description"
-  task complete --id "abc123" --actor "new-actor" --milestone "M3"`,
-	Args: cobra.NoArgs,
+	Use:     "complete",
+	Short:   "Mark a task as completed",
+	Long:    "Mark a task as completed by providing its ID.\n\nThe completion can be specified as a JSON document via argument or stdin.\nFields: id (required), title, description, status, milestone, actor.",
+	Example: `  task complete '{"id":"1"}'
+  echo '{"id":"1","actor":"new-owner"}' | task complete -
+  task complete -`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// Validate required ID
-		if err := cliErrors.ValidateID(completeID); err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
-
-		// Validate optional fields
-		if completeTitle != "" {
-			if err := cliErrors.ValidateTitle(completeTitle); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
-
-		if completeMilestone != "" {
-			if err := cliErrors.ValidateMilestone(completeMilestone); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
-
-		if completeActor != "" {
-			if err := cliErrors.ValidateActor(completeActor); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
-
-		if completeStatus != "" {
-			if err := cliErrors.ValidateStatus(completeStatus); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
-
-		// Initialize database
 		database, err := db.NewDB(".taskflow/tasks.db")
 		if err != nil {
 			cliErrors.HandleError(err)
@@ -75,17 +28,67 @@ Use 'task list' to find task IDs.`,
 		}
 		defer database.Close()
 
-		// Create input
-		input := &service.CompleteTaskInput{
-			ID:          completeID,
-			Title:       completeTitle,
-			Description: completeDescription,
-			Milestone:   completeMilestone,
-			Status:      completeStatus,
-			Actor:       completeActor,
+		jsonArg := completeJSON
+		if jsonArg == "" && len(args) > 0 {
+			jsonArg = args[0]
+		}
+		if jsonArg == "" {
+			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
+			return
 		}
 
-		// Complete task
+		doc, err := service.ParseJSONFromArg(jsonArg)
+		if err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+
+		id, _ := service.GetStringFieldTrim(doc, "id")
+		title, hasTitle := service.GetStringField(doc, "title")
+		description, _ := service.GetStringField(doc, "description")
+		status, hasStatus := service.GetStringField(doc, "status")
+		milestone, hasMilestone := service.GetStringField(doc, "milestone")
+		actor, hasActor := service.GetStringField(doc, "actor")
+
+		if err := cliErrors.ValidateID(id); err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+
+		if hasTitle {
+			if err := cliErrors.ValidateTitle(title); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+		if hasMilestone {
+			if err := cliErrors.ValidateMilestone(milestone); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+		if hasActor {
+			if err := cliErrors.ValidateActor(actor); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+		if hasStatus {
+			if err := cliErrors.ValidateStatus(status); err != nil {
+				cliErrors.HandleError(err)
+				return
+			}
+		}
+
+		input := &service.CompleteTaskInput{
+			ID:          id,
+			Title:       title,
+			Description: description,
+			Milestone:   milestone,
+			Status:      status,
+			Actor:       actor,
+		}
+
 		result, err := service.CompleteTask(database, input)
 		if err != nil {
 			cliErrors.HandleError(err)
@@ -102,16 +105,5 @@ Use 'task list' to find task IDs.`,
 func init() {
 	rootCmd.AddCommand(completeCmd)
 
-	completeCmd.Flags().StringVarP(&completeID, "id", "i", "", "Task ID (required)")
-	completeCmd.Flags().StringVarP(&completeTitle, "title", "t", "", "Task title")
-	completeCmd.Flags().StringVarP(&completeDescription, "description", "d", "", "Task description")
-	completeCmd.Flags().StringVarP(&completeStatus, "status", "s", "", "Task status (todo, in_progress, done, blocked)")
-	completeCmd.Flags().StringVarP(&completeMilestone, "milestone", "m", "", "Milestone for the task")
-	completeCmd.Flags().StringVarP(&completeActor, "actor", "a", "", "Actor assigned to the task")
-
-	// Mark ID as required
-	if err := completeCmd.MarkFlagRequired("id"); err != nil {
-		// Log but don't fail - MarkFlagRequired can fail if flag doesn't exist
-		_ = err
-	}
+	completeCmd.Flags().StringVarP(&completeJSON, "json", "j", "", "JSON document (use '-' for stdin)")
 }

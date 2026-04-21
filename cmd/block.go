@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -10,27 +11,17 @@ import (
 	cliErrors "github.com/user/project/pkg/errors"
 )
 
-var blockID string
-var blockReason string
+var blockJSON string
 
 var blockCmd = &cobra.Command{
-	Use:   "block",
-	Short: "Block a task",
-	Long: `Block a task by providing its ID and a reason.
-
-A blocked task cannot be worked on until it is unblocked.
-Use 'task list' to find task IDs.`,
-	Example: `  task block --id "1" --reason "Waiting for API documentation"
-  task block --id "abc123" -r "Dependency not available"`,
-	Args: cobra.NoArgs,
+	Use:     "block",
+	Short:   "Block a task",
+	Long:    "Block a task by providing its ID and a reason.\n\nA blocked task cannot be worked on until it is unblocked.\nUse 'task list' to find task IDs.",
+	Example: `  task block '{"id":"1","reason":"Waiting for API documentation"}'
+  echo '{"id":"abc123","reason":"Dependency not available"}' | task block -
+  task block -`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// Validate required ID
-		if err := cliErrors.ValidateID(blockID); err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
-
-		// Initialize database
 		database, err := db.NewDB(".taskflow/tasks.db")
 		if err != nil {
 			cliErrors.HandleError(err)
@@ -38,10 +29,37 @@ Use 'task list' to find task IDs.`,
 		}
 		defer database.Close()
 
-		// Block task
+		jsonArg := blockJSON
+		if jsonArg == "" && len(args) > 0 {
+			jsonArg = args[0]
+		}
+		if jsonArg == "" {
+			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
+			return
+		}
+
+		doc, err := service.ParseJSONFromArg(jsonArg)
+		if err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+
+		id, _ := service.GetStringFieldTrim(doc, "id")
+		reason, _ := service.GetStringFieldTrim(doc, "reason")
+
+		if err := cliErrors.ValidateID(id); err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+
+		if strings.TrimSpace(reason) == "" {
+			cliErrors.HandleError(cliErrors.MissingArgumentError("reason", "reason is required in JSON document"))
+			return
+		}
+
 		result, err := service.BlockTask(database, service.BlockTaskInput{
-			ID:     blockID,
-			Reason: blockReason,
+			ID:     id,
+			Reason: reason,
 		})
 		if err != nil {
 			cliErrors.HandleError(err)
@@ -58,14 +76,5 @@ Use 'task list' to find task IDs.`,
 func init() {
 	rootCmd.AddCommand(blockCmd)
 
-	blockCmd.Flags().StringVarP(&blockID, "id", "i", "", "Task ID (required)")
-	blockCmd.Flags().StringVarP(&blockReason, "reason", "r", "", "Reason for blocking the task (required)")
-
-	// Mark ID and reason as required
-	if err := blockCmd.MarkFlagRequired("id"); err != nil {
-		_ = err
-	}
-	if err := blockCmd.MarkFlagRequired("reason"); err != nil {
-		_ = err
-	}
+	blockCmd.Flags().StringVarP(&blockJSON, "json", "j", "", "JSON document (use '-' for stdin)")
 }

@@ -13,49 +13,48 @@ import (
 	"github.com/user/project/pkg/output"
 )
 
-var (
-	listFilterMilestone string
-	listFilterSprint    string
-	listFilterStatus    string
-	listFilterActor     string
-	listFilterID        string
-	listSortBy          string
-	listFormat          string
-	listLimit           int
-	listOffset          int
-	listAll             bool
-)
+var listJSON string
 
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all tasks",
-	Long: `List all tasks with optional filters.
-
-You can filter by milestone, status, or actor to find specific tasks.
-Use the --all flag to include completed tasks in the listing.
-Use --format to choose output format (table, markdown, or xml).
-Use --sort-by to sort by status, priority, milestone, created, updated, id, sprint, title, description, or actor.
-Use --id to get a specific task by its ID.`,
-	Example: `  task list
-  task list -m "sprint-1"
-  task list -s pending -a john
-  task list --format markdown
-  task list --limit 10 --offset 0
-  task list --all
-  task list --sort-by status
-  task list --sort-by created
-  task list --sort-by title
-  task list --sort-by actor
-  task list --id task-123`,
-	Args: cobra.NoArgs,
+	Use:     "list",
+	Short:   "List all tasks",
+	Long:    "List all tasks with optional filters.\n\nYou can filter by milestone, status, or actor to find specific tasks. Use --all to include completed tasks. Use --format to choose output format (table, markdown, or xml).",
+	Example: `  task list '{}'
+  task list '{"milestone":"sprint-1"}'
+  task list '{"status":"todo","actor":"john"}'
+  task list '{"format":"markdown"}'
+  task list '{"sort_by":"status"}'
+  task list '{"limit":10,"offset":0}'
+  task list '{"all":true}'
+  task list '{"id":"task-123"}'`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// Handle "all" status filter - clear status filter when "all" is passed
+		jsonArg := listJSON
+		if jsonArg == "" && len(args) > 0 {
+			jsonArg = args[0]
+		}
+		if jsonArg == "" {
+			jsonArg = "{}"
+		}
+
+		doc, err := service.ParseJSONFromArg(jsonArg)
+		if err != nil {
+			cliErrors.HandleError(err)
+			return
+		}
+
+		listFilterMilestone, _ := service.GetStringFieldTrim(doc, "milestone")
+		listFilterStatus, _ := service.GetStringFieldTrim(doc, "status")
+		listFilterActor, _ := service.GetStringFieldTrim(doc, "actor")
+		listFilterID, _ := service.GetStringFieldTrim(doc, "id")
+		listSortBy, _ := service.GetStringFieldTrim(doc, "sort_by")
+		listFormat, _ := service.GetStringFieldTrim(doc, "format")
+
 		listStatusFilter := listFilterStatus
 		if strings.ToLower(listFilterStatus) == "all" {
 			listStatusFilter = ""
 		}
 
-		// Validate filter values
 		if listFilterStatus != "" && strings.ToLower(listFilterStatus) != "all" {
 			if err := cliErrors.ValidateStatus(listFilterStatus); err != nil {
 				cliErrors.HandleError(err)
@@ -71,7 +70,6 @@ Use --id to get a specific task by its ID.`,
 			return
 		}
 
-		// Validate sort by
 		if listSortBy != "" {
 			validSortBy := map[string]bool{
 				"status":      true,
@@ -80,7 +78,6 @@ Use --id to get a specific task by its ID.`,
 				"created":     true,
 				"updated":     true,
 				"id":          true,
-				"sprint":      true,
 				"title":       true,
 				"description": true,
 				"actor":       true,
@@ -88,12 +85,11 @@ Use --id to get a specific task by its ID.`,
 			if !validSortBy[listSortBy] {
 				cliErrors.HandleError(cliErrors.ValidationError("sort-by",
 					fmt.Sprintf("'%s' is not valid", listSortBy),
-					fmt.Sprintf("Valid sort values: status, priority, milestone, created, updated, id, sprint, title, description, actor")))
+					fmt.Sprintf("Valid sort values: status, priority, milestone, created, updated, id, title, description, actor")))
 				return
 			}
 		}
 
-		// Validate ID
 		if listFilterID != "" {
 			if err := cliErrors.ValidateID(listFilterID); err != nil {
 				cliErrors.HandleError(err)
@@ -101,14 +97,20 @@ Use --id to get a specific task by its ID.`,
 			}
 		}
 
-		// Validate format
-		format, err := output.ParseOutputFormat(listFormat)
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
+		listLimit := 20
+		listOffset := 0
+		listAll := false
+
+		if v, ok := service.GetNumberField(doc, "limit"); ok {
+			listLimit = int(v)
+		}
+		if v, ok := service.GetNumberField(doc, "offset"); ok {
+			listOffset = int(v)
+		}
+		if v, ok := service.GetBooleanField(doc, "all"); ok {
+			listAll = v
 		}
 
-		// Validate pagination parameters
 		if listLimit < 0 {
 			cliErrors.HandleError(fmt.Errorf("limit cannot be negative"))
 			return
@@ -118,7 +120,16 @@ Use --id to get a specific task by its ID.`,
 			return
 		}
 
-		// Initialize database
+		if listFormat != "" {
+			validFormats := map[string]bool{"table": true, "markdown": true, "xml": true}
+			if !validFormats[listFormat] {
+				cliErrors.HandleError(cliErrors.ValidationError("format",
+					fmt.Sprintf("'%s' is not valid", listFormat),
+					"Valid formats: table, markdown, xml"))
+				return
+			}
+		}
+
 		database, err := db.NewDB(".taskflow/tasks.db")
 		if err != nil {
 			cliErrors.HandleError(err)
@@ -126,18 +137,15 @@ Use --id to get a specific task by its ID.`,
 		}
 		defer database.Close()
 
-		// Create list service
 		listService := service.NewListService(database)
 
-		// If ID is specified, get a single task
 		if listFilterID != "" {
 			task, err := listService.GetTask(listFilterID)
 			if err != nil {
 				cliErrors.HandleError(err)
 				return
 			}
-			// Render single task
-			renderer := output.NewTaskTableRenderer(format)
+			renderer := output.NewTaskTableRenderer()
 			renderer.Render(&service.ListTaskResult{
 				Tasks:   []service.TaskItem{*task},
 				Total:   1,
@@ -148,10 +156,8 @@ Use --id to get a specific task by its ID.`,
 			return
 		}
 
-		// Build filter
 		filter := &service.ListTaskFilter{
 			Milestone: listFilterMilestone,
-			Sprint:    listFilterSprint,
 			Status:    listStatusFilter,
 			Actor:     listFilterActor,
 			ID:        listFilterID,
@@ -161,15 +167,13 @@ Use --id to get a specific task by its ID.`,
 			ShowAll:   listAll,
 		}
 
-		// Execute list operation
 		result, err := listService.ListTasks(filter)
 		if err != nil {
 			cliErrors.HandleError(err)
 			return
 		}
 
-		// Render output
-		renderer := output.NewTaskTableRenderer(format)
+		renderer := output.NewTaskTableRenderer()
 		renderer.Render(result)
 	},
 }
@@ -177,147 +181,9 @@ Use --id to get a specific task by its ID.`,
 func init() {
 	rootCmd.AddCommand(listCmd)
 
-	listCmd.Flags().BoolVarP(&listAll, "all", "a", false, "Show all tasks including completed")
-	listCmd.Flags().StringVarP(&listFilterMilestone, "milestone", "m", "", "Filter by milestone")
-	listCmd.Flags().StringVarP(&listFilterSprint, "sprint", "r", "", "Filter by sprint")
-	listCmd.Flags().StringVarP(&listFilterStatus, "status", "s", "", "Filter by status")
-	listCmd.Flags().StringVarP(&listFilterActor, "actor", "", "", "Filter by actor")
-	listCmd.Flags().StringVarP(&listFilterID, "id", "", "", "Get task by ID")
-	listCmd.Flags().StringVarP(&listSortBy, "sort-by", "", "", "Sort by field (status, priority, milestone, created, updated)")
-	listCmd.Flags().StringVarP(&listFormat, "format", "f", "table", "Output format (table|markdown|xml)")
-	listCmd.Flags().IntVarP(&listLimit, "limit", "l", 20, "Maximum number of tasks to display")
-	listCmd.Flags().IntVarP(&listOffset, "offset", "o", 0, "Number of tasks to skip")
-
-	// Register custom completers for sort-by
-	listCmd.RegisterFlagCompletionFunc("sort-by", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return []string{"status", "priority", "milestone", "created", "updated"}, cobra.ShellCompDirectiveNoFileComp
-	})
-
-	// Register custom completers for status
-	listCmd.RegisterFlagCompletionFunc("status", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return []string{"todo", "in_progress", "done", "blocked"}, cobra.ShellCompDirectiveNoFileComp
-	})
-
-	// Register custom completers for format
-	listCmd.RegisterFlagCompletionFunc("format", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return output.GetValidFormats(), cobra.ShellCompDirectiveNoFileComp
-	})
+	listCmd.Flags().StringVarP(&listJSON, "json", "j", "", "JSON document (use '-' for stdin)")
 }
 
-// GetListFilterMilestone returns the milestone filter value
-func GetListFilterMilestone() string {
-	return listFilterMilestone
-}
-
-// GetListFilterSprint returns the sprint filter value
-func GetListFilterSprint() string {
-	return listFilterSprint
-}
-
-// GetListFilterStatus returns the status filter value
-func GetListFilterStatus() string {
-	return listFilterStatus
-}
-
-// GetListFilterActor returns the actor filter value
-func GetListFilterActor() string {
-	return listFilterActor
-}
-
-// GetListFormat returns the format value
-func GetListFormat() string {
-	return listFormat
-}
-
-// GetListLimit returns the limit value
-func GetListLimit() int {
-	return listLimit
-}
-
-// GetListOffset returns the offset value
-func GetListOffset() int {
-	return listOffset
-}
-
-// GetListAll returns the all flag value
-func GetListAll() bool {
-	return listAll
-}
-
-// GetListFilterID returns the ID filter value
-func GetListFilterID() string {
-	return listFilterID
-}
-
-// GetListSortBy returns the sort by value
-func GetListSortBy() string {
-	return listSortBy
-}
-
-// SetListFilterMilestone sets the milestone filter value (for testing)
-func SetListFilterMilestone(val string) {
-	listFilterMilestone = val
-}
-
-// SetListFilterSprint sets the sprint filter value (for testing)
-func SetListFilterSprint(val string) {
-	listFilterSprint = val
-}
-
-// SetListFilterStatus sets the status filter value (for testing)
-func SetListFilterStatus(val string) {
-	listFilterStatus = val
-}
-
-// SetListFilterActor sets the actor filter value (for testing)
-func SetListFilterActor(val string) {
-	listFilterActor = val
-}
-
-// SetListFormat sets the format value (for testing)
-func SetListFormat(val string) {
-	listFormat = val
-}
-
-// SetListLimit sets the limit value (for testing)
-func SetListLimit(val int) {
-	listLimit = val
-}
-
-// SetListOffset sets the offset value (for testing)
-func SetListOffset(val int) {
-	listOffset = val
-}
-
-// SetListAll sets the all flag value (for testing)
-func SetListAll(val bool) {
-	listAll = val
-}
-
-// SetListFilterID sets the ID filter value (for testing)
-func SetListFilterID(val string) {
-	listFilterID = val
-}
-
-// SetListSortBy sets the sort by value (for testing)
-func SetListSortBy(val string) {
-	listSortBy = val
-}
-
-// ResetListFlags resets all list flags to default values (for testing)
-func ResetListFlags() {
-	listFilterMilestone = ""
-	listFilterStatus = ""
-	listFilterActor = ""
-	listFilterID = ""
-	listSortBy = ""
-	listFormat = "table"
-	listLimit = 20
-	listOffset = 0
-	listAll = false
-}
-
-// ParseLimit parses limit from string (for testing)
 func ParseLimit(s string) (int, error) {
 	if s == "" {
 		return 20, nil
@@ -325,7 +191,6 @@ func ParseLimit(s string) (int, error) {
 	return strconv.Atoi(s)
 }
 
-// ParseOffset parses offset from string (for testing)
 func ParseOffset(s string) (int, error) {
 	if s == "" {
 		return 0, nil

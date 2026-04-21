@@ -17,7 +17,7 @@ func TestGenerateToolWrapper(t *testing.T) {
 			opts: &ToolWrapperOptions{
 				BinaryPath: "taskflow",
 			},
-			wantContains: "export const taskflow_addTool = tool({",
+			wantContains: "export const task_add = tool({",
 			wantErr:      false,
 		},
 		{
@@ -91,11 +91,11 @@ func TestGenerateToolWrapperContainsDescription(t *testing.T) {
 	// Check for specific command descriptions
 	descriptions := []string{
 		"Add a new task to the task list",
-		"Update an existing task by its ID",
 		"Mark a task as completed",
 		"Block a task by providing its ID and a reason",
-		"List all tasks with optional filters",
+		"Soft delete a task",
 		"Reset timed out tasks to todo status",
+		"Start working on a task",
 	}
 
 	for _, desc := range descriptions {
@@ -171,26 +171,22 @@ func TestGenerateToolWrapperProducesValidOutput(t *testing.T) {
 		desc    string
 	}{
 		{"import { tool } from \"@opencode-ai/plugin\"", "tool import"},
-		{"export const taskflow_addTool = tool({", "add tool definition"},
-		{"export const taskflow_updateTool = tool({", "update tool definition"},
-		{"export const taskflow_completeTool = tool({", "complete tool definition"},
-		{"export const taskflow_blockTool = tool({", "block tool definition"},
-		{"export const taskflow_listTool = tool({", "list tool definition"},
-		{"export const taskflow_reset_timedoutTool = tool({", "reset_timedout tool definition"},
+		{"export const task_add = tool({", "add tool definition"},
+		{"export const task_complete = tool({", "complete tool definition"},
+		{"export const task_block = tool({", "block tool definition"},
+		{"export const task_delete = tool({", "delete tool definition"},
+		{"export const task_list_all = tool({", "list_all tool definition"},
+		{"export const task_list_blocked = tool({", "list_blocked tool definition"},
+		{"export const task_list_done = tool({", "list_done tool definition"},
+		{"export const task_list_status_in_progress = tool({", "list_status_in_progress tool definition"},
+		{"export const task_list_status_todo = tool({", "list_status_todo tool definition"},
+		{"export const task_reset_timedout = tool({", "reset_timedout tool definition"},
+		{"export const task_start = tool({", "start tool definition"},
 		{"description:", "description field"},
 		{"args: {", "args object start"},
 		{"async execute(args, context)", "execute function"},
 		{"const cmdArgs = [", "command args array"},
 		{"execFileSync", "execFileSync call"},
-		// Enum-based tools
-		{"export const taskflow_list_format_tableTool = tool({", "list_format_table tool definition"},
-		{"export const taskflow_list_format_markdownTool = tool({", "list_format_markdown tool definition"},
-		{"export const taskflow_list_format_xmlTool = tool({", "list_format_xml tool definition"},
-		{"export const taskflow_list_status_todoTool = tool({", "list_status_todo tool definition"},
-		{"export const taskflow_list_status_in_progressTool = tool({", "list_status_in_progress tool definition"},
-		{"export const taskflow_list_status_doneTool = tool({", "list_status_done tool definition"},
-		{"export const taskflow_list_status_blockedTool = tool({", "list_status_blocked tool definition"},
-		{"export const taskflow_sprint_completeTool = tool({", "sprint_complete tool definition"},
 	}
 
 	for _, check := range checks {
@@ -225,13 +221,17 @@ func TestGenerateToolWrapperContainsAllCommands(t *testing.T) {
 
 	// Individual command tools
 	commandNames := []string{
-		"taskflow_addTool",
-		"taskflow_updateTool",
-		"taskflow_completeTool",
-		"taskflow_blockTool",
-		"taskflow_listTool",
-		"taskflow_reset_timedoutTool",
-		"taskflow_sprint_completeTool",
+		"task_add",
+		"task_block",
+		"task_complete",
+		"task_delete",
+		"task_list_all",
+		"task_list_blocked",
+		"task_list_done",
+		"task_list_status_in_progress",
+		"task_list_status_todo",
+		"task_reset_timedout",
+		"task_start",
 	}
 
 	for _, cmd := range commandNames {
@@ -249,14 +249,14 @@ func TestGenerateToolWrapperCommandArgumentHandling(t *testing.T) {
 		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
 	}
 
-	// Verify required argument handling
-	if !strings.Contains(result, "if (args.") {
-		t.Error("GenerateToolWrapper() should handle arguments")
+	// Verify JSON format for arguments
+	if !strings.Contains(result, "args.") {
+		t.Error("GenerateToolWrapper() should reference args in JSON serialization")
 	}
 
-	// Verify --flag format for arguments
-	if !strings.Contains(result, "--") {
-		t.Error("GenerateToolWrapper() should use --flag format for arguments")
+	// Verify JSON format for arguments
+	if !strings.Contains(result, "JSON.stringify") {
+		t.Error("GenerateToolWrapper() should use JSON format for arguments")
 	}
 }
 
@@ -275,8 +275,6 @@ func TestGenerateToolWrapperSchemaTypes(t *testing.T) {
 		{"tool.schema.string()", "string schema"},
 		{"tool.schema.number()", "number schema"},
 		{"tool.schema.boolean()", "boolean schema"},
-		{"tool.schema.enum(", "enum schema"},
-		{".optional()", "optional modifier"},
 	}
 
 	for _, st := range schemaTypes {
@@ -360,51 +358,14 @@ func TestGenerateToolWrapperHandlesDashesInCommandNames(t *testing.T) {
 		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
 	}
 
-	// Verify that underscores are preserved (reset_timedout -> taskflow_reset_timedout)
-	if strings.Contains(result, "taskflow_reset_timedoutTool") {
+	// Verify that underscores are preserved (reset_timedout -> task_reset_timedout)
+	if strings.Contains(result, "task_reset_timedout") {
 		// This is the expected behavior - underscores preserved
-	} else if strings.Contains(result, "taskflow_resetTimedoutTool") {
+	} else if strings.Contains(result, "task_resetTimedout") {
 		t.Error("Command name with underscores should be preserved")
 	}
 }
 
-func TestGenerateToolWrapperEnumSchemas(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
 
-	// Verify enum schemas for format and status are present
-	enumChecks := []string{
-		"tool.schema.enum([\"table\", \"markdown\", \"xml\"])",
-		"tool.schema.enum([\"todo\", \"in_progress\", \"done\", \"blocked\"])",
-	}
 
-	for _, check := range enumChecks {
-		if !strings.Contains(result, check) {
-			t.Errorf("GenerateToolWrapper() missing enum schema: %s", check)
-		}
-	}
-}
 
-func TestGenerateToolWrapperSprintTools(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	// Verify sprint tools are present
-	sprintChecks := []string{
-		"export const taskflow_sprint_completeTool = tool({",
-		"export const taskflow_list_format_xmlTool = tool({",
-		"export const taskflow_list_status_blockedTool = tool({",
-	}
-
-	for _, check := range sprintChecks {
-		if !strings.Contains(result, check) {
-			t.Errorf("GenerateToolWrapper() missing sprint tool: %s", check)
-		}
-	}
-}
