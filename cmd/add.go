@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 
@@ -96,9 +95,5 @@ var addCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(addCmd)
 
-	if os.Getenv("TF_TEST_STDIN") == "1" {
-		addCmd.Flags().StringVarP(&addJSON, "json", "j", "", "JSON document (use '-' for stdin)")
-	} else {
-		addCmd.Flags().StringVarP(&addJSON, "json", "j", "", "JSON document (use '-' for stdin)")
-	}
+	addCmd.Flags().StringVarP(&addJSON, "json", "j", "", "JSON document (use '-' for stdin)")
 }

@@ -140,6 +140,7 @@ func (db *DB) CreateTask(t *Task) error {
 }
 
 // CreateTaskTx creates a new task within a transaction
+// Deprecated: Not used in production code, only in tests
 func (db *DB) CreateTaskTx(tx *sql.Tx, t *Task) error {
 	if db == nil || db.conn == nil {
 		return ErrNilDB
@@ -253,6 +254,7 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 }
 
 // ReadTaskTx retrieves a task by ID within a transaction
+// Deprecated: Not used in production code, only in tests
 func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 	if tx == nil {
 		return nil, errors.New("nil transaction provided")
@@ -355,6 +357,7 @@ func (db *DB) UpdateTask(t *Task) error {
 }
 
 // UpdateTaskTx updates an existing task within a transaction
+// Deprecated: Not used in production code, only in tests
 func (db *DB) UpdateTaskTx(tx *sql.Tx, t *Task) error {
 	if tx == nil {
 		return errors.New("nil transaction provided")
@@ -565,6 +568,7 @@ func (db *DB) GetTaskByID(id string) (*Task, error) {
 }
 
 // DeleteTaskTx deletes a task by ID within a transaction
+// Deprecated: Not used in production code, only in tests
 func (db *DB) DeleteTaskTx(tx *sql.Tx, id string) error {
 	if tx == nil {
 		return errors.New("nil transaction provided")
@@ -707,6 +711,7 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 }
 
 // ListTasksTx retrieves tasks with optional filters within a transaction
+// Deprecated: Not used in production code, only in tests
 func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
 	if tx == nil {
 		return nil, errors.New("nil transaction provided")

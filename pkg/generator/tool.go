@@ -33,16 +33,11 @@ const (
 	ValidSortBy       = "status, priority, milestone, created, updated, id, title, description, actor"
 )
 
-var validFormatValues = []string{FormatTable, FormatMarkdown, FormatXML}
-var validStatusValues = []string{StatusTodo, StatusInProgress, StatusDone, StatusBlocked}
-var validSortByValues = []string{SortByStatus, SortByPriority, SortByMilestone, SortByCreated, SortByUpdated, SortByID, SortByTitle, SortByDescription, SortByActor}
-
 // ToolWrapperOptions contains options for tool wrapper generation
 type ToolWrapperOptions struct {
 	BinaryPath string
 }
 
-// DefaultToolWrapperOptions returns default options for tool wrapper generation
 func DefaultToolWrapperOptions() *ToolWrapperOptions {
 	return &ToolWrapperOptions{
 		BinaryPath: "taskflow",
@@ -78,101 +73,7 @@ type ToolCommand struct {
 	Enums       []ToolEnum
 }
 
-func getToolCommands() []ToolCommand {
-	return []ToolCommand{
-		{
-			Name:        "add",
-			Description: "Add a new task to the task list. Requires id, milestone, title, and description.",
-			Args: []ToolArg{
-				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
-				{Name: "title", Type: "string", Description: "Task title (required)", Required: true},
-				{Name: "description", Type: "string", Description: "Task description (required)", Required: true},
-				{Name: "milestone", Type: "string", Description: "Milestone for the task (required)", Required: true},
-				{Name: "actor", Type: "string", Description: "Actor assigned to the task", Required: false},
-			},
-		},
-		{
-			Name:        "block",
-			Description: "Block a task by providing its ID and a reason.",
-			Args: []ToolArg{
-				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
-				{Name: "reason", Type: "string", Description: "Reason for blocking the task (required)", Required: true},
-			},
-		},
-		{
-			Name:        "complete",
-			Description: "Mark a task as completed by providing its ID.",
-			Args: []ToolArg{
-				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
-			},
-		},
-		{
-			Name:        "delete",
-			Description: "Soft delete a task by moving it to the deleted_tasks table.",
-			Args: []ToolArg{
-				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
-			},
-		},
-		{
-			Name:        "list_all",
-			Description: "List all tasks with optional milestone filter.",
-			Args: []ToolArg{
-				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-				{Name: "all", Type: "boolean", Description: "Show all tasks including completed", Required: false},
-			},
-		},
-		{
-			Name:        "list_blocked",
-			Description: "List blocked tasks with optional milestone filter.",
-			Args: []ToolArg{
-				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-			},
-		},
-		{
-			Name:        "list_done",
-			Description: "List completed tasks with optional milestone filter.",
-			Args: []ToolArg{
-				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-			},
-		},
-		{
-			Name:        "list_status_in_progress",
-			Description: "List in-progress tasks with optional milestone filter.",
-			Args: []ToolArg{
-				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-			},
-		},
-		{
-			Name:        "list_status_todo",
-			Description: "List todo tasks with optional milestone filter.",
-			Args: []ToolArg{
-				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-			},
-		},
-		{
-			Name:        "reset_timedout",
-			Description: "Reset timed out tasks to todo status. Finds in-progress tasks that have exceeded the specified timeout duration.",
-			Args: []ToolArg{
-				{Name: "minutes", Type: "number", Description: "Timeout duration in minutes (default: 30)", Required: false},
-			},
-		},
-	}
-}
+
 
 func getToolCommandsWithEnums() []ToolCommand {
 	return []ToolCommand{
@@ -326,27 +227,6 @@ func generateArgsSchema(args []ToolArg, enums []ToolEnum) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("  },\n")
-	return b.String()
-}
-
-// sanitizeName converts a command name to a valid TypeScript identifier
-func sanitizeName(name string) string {
-	name = strings.ReplaceAll(name, "-", "_")
-	return name
-}
-
-// toCamelCase converts a name to camelCase for tool names
-func toCamelCase(name string) string {
-	parts := strings.Split(name, "_")
-	if len(parts) == 1 {
-		return parts[0]
-	}
-	var b strings.Builder
-	b.WriteString(strings.ToLower(parts[0]))
-	for _, p := range parts[1:] {
-		b.WriteString(strings.ToUpper(string(p[0])))
-		b.WriteString(p[1:])
-	}
 	return b.String()
 }
 

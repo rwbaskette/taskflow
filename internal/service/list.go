@@ -81,7 +81,7 @@ func (s *ListService) ListTasks(filter *ListTaskFilter) (*ListTaskResult, error)
 		return nil, err
 	}
 
-// Convert to service items
+	// Convert to service items
 	items := make([]TaskItem, 0, len(tasks))
 	for _, task := range tasks {
 		items = append(items, TaskItem{
@@ -162,7 +162,7 @@ func (s *ListService) GetTask(id string) (*TaskItem, error) {
 		return nil, err
 	}
 
-return &TaskItem{
+	return &TaskItem{
 		ID:          task.ID,
 		Milestone:   task.Milestone,
 		Sprint:      task.Sprint,

@@ -184,6 +184,8 @@ func init() {
 	listCmd.Flags().StringVarP(&listJSON, "json", "j", "", "JSON document (use '-' for stdin)")
 }
 
+// ParseLimit parses a limit string, returns default 20 if empty.
+// Deprecated: Only used in tests.
 func ParseLimit(s string) (int, error) {
 	if s == "" {
 		return 20, nil
@@ -191,6 +193,8 @@ func ParseLimit(s string) (int, error) {
 	return strconv.Atoi(s)
 }
 
+// ParseOffset parses an offset string, returns default 0 if empty.
+// Deprecated: Only used in tests.
 func ParseOffset(s string) (int, error) {
 	if s == "" {
 		return 0, nil
