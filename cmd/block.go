@@ -6,9 +6,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/user/project/internal/db"
-	"github.com/user/project/internal/service"
-	cliErrors "github.com/user/project/pkg/errors"
+	"github.com/rwbaskette/taskflow/internal/db"
+	"github.com/rwbaskette/taskflow/internal/service"
+	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 var blockJSON string

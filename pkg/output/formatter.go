@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	cliErrors "github.com/user/project/pkg/errors"
+	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 // Re-export colors and error types from errors package

@@ -3,7 +3,7 @@ package integration
 import (
 	"testing"
 
-	"github.com/user/project/internal/service"
+	"github.com/rwbaskette/taskflow/internal/service"
 )
 
 // TestAddTaskWorkflow tests the full add task workflow

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/user/project/internal/service"
+	"github.com/rwbaskette/taskflow/internal/service"
 )
 
 type TaskTableRenderer struct{}

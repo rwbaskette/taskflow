@@ -1,4 +1,4 @@
-module github.com/user/project
+module github.com/rwbaskette/taskflow
 
 go 1.22.2
 

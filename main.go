@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/user/project/cmd"
+	"github.com/rwbaskette/taskflow/cmd"
 )
 
 func main() {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/user/project/internal/db"
+	"github.com/rwbaskette/taskflow/internal/db"
 )
 
 // TestConfig holds configuration for integration tests

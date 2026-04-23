@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/user/project/internal/db"
+	"github.com/rwbaskette/taskflow/internal/db"
 )
 
 const testDBPath = "/home/rwbaskette/tmp/test_service_task.db"

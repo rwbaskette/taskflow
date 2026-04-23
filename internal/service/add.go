@@ -3,7 +3,7 @@ package service
 import (
 	"time"
 
-	"github.com/user/project/internal/db"
+	"github.com/rwbaskette/taskflow/internal/db"
 )
 
 // AddTaskInput contains the input parameters for adding a task

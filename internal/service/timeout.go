@@ -3,7 +3,7 @@ package service
 import (
 	"time"
 
-	"github.com/user/project/internal/db"
+	"github.com/rwbaskette/taskflow/internal/db"
 )
 
 // IsTimedOut checks if a task has exceeded the specified timeout duration

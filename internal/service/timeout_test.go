@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/project/internal/db"
+	"github.com/rwbaskette/taskflow/internal/db"
 )
 
 func TestIsTimedOut_NilTask(t *testing.T) {

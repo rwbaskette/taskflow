@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/project/internal/db"
+	"github.com/rwbaskette/taskflow/internal/db"
 )
 
 func TestListTasks_WithValidFilters(t *testing.T) {

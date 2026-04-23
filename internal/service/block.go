@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/project/internal/db"
+	"github.com/rwbaskette/taskflow/internal/db"
 )
 
 // BlockTaskInput contains the input parameters for blocking a task

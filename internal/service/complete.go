@@ -3,7 +3,7 @@ package service
 import (
 	"time"
 
-	"github.com/user/project/internal/db"
+	"github.com/rwbaskette/taskflow/internal/db"
 )
 
 // CompleteTaskInput contains the input parameters for completing a task

@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/user/project/pkg/generator"
+	"github.com/rwbaskette/taskflow/pkg/generator"
 )
 
 var (

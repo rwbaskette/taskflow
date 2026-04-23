@@ -3,7 +3,7 @@ package service
 import (
 	"strings"
 
-	"github.com/user/project/internal/db"
+	"github.com/rwbaskette/taskflow/internal/db"
 )
 
 // ListTaskFilter contains filters for listing tasks
