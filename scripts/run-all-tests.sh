@@ -3,7 +3,8 @@
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLI="/home/rwbaskette/tmp/task-cli"
+TMPDIR="${TMPDIR:-/tmp}"
+CLI="${TMPDIR}/task-cli"
 
 # Colors for output
 RED='\033[0;31m'

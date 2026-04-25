@@ -3,8 +3,9 @@
 # This CLI uses positional arguments for add
 
 # Configuration
-CLI="/home/rwbaskette/tmp/task-cli"
-DB_PATH="/home/rwbaskette/tmp/data/tasks.db"
+TMPDIR="${TMPDIR:-/tmp}"
+CLI="${TMPDIR}/task-cli"
+DB_PATH="${TMPDIR}/data/tasks.db"
 
 # Colors for output
 RED='\033[0;31m'

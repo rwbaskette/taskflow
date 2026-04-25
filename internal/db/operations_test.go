@@ -3,18 +3,16 @@ package db
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
-const testDBPath = "/home/rwbaskette/tmp/test_task.db"
-
 func setupTestDB(t *testing.T) *DB {
-	if err := os.RemoveAll(testDBPath); err != nil {
-		t.Fatalf("failed to remove test db: %v", err)
-	}
+	tmpDir := t.TempDir()
+	testDBPath := filepath.Join(tmpDir, "test_task.db")
 	// Set project root for schema lookup
-	os.Setenv("PROJECT_ROOT", "/home/rwbaskette/tmp")
+	os.Setenv("PROJECT_ROOT", tmpDir)
 	db, err := NewDB(testDBPath)
 	if err != nil {
 		t.Fatalf("failed to create test db: %v", err)
@@ -26,7 +24,6 @@ func teardownTestDB(t *testing.T, db *DB) {
 	if db != nil {
 		db.Close()
 	}
-	os.RemoveAll(testDBPath)
 }
 
 func TestCreateTask(t *testing.T) {

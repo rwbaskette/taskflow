@@ -2,19 +2,18 @@ package service
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/rwbaskette/taskflow/internal/db"
 )
 
-const testDBPathService = "/home/rwbaskette/tmp/test_service_business_logic.db"
-
 func setupTestDBService(t *testing.T) *db.DB {
-	if err := os.RemoveAll(testDBPathService); err != nil {
-		t.Fatalf("failed to remove test db: %v", err)
-	}
-	os.Setenv("PROJECT_ROOT", "/home/rwbaskette/tmp")
-	testDB, err := db.NewDB(testDBPathService)
+	tmpDir := t.TempDir()
+	testDBPath := filepath.Join(tmpDir, "test_service_business_logic.db")
+	// Set project root for schema lookup
+	os.Setenv("PROJECT_ROOT", tmpDir)
+	testDB, err := db.NewDB(testDBPath)
 	if err != nil {
 		t.Fatalf("failed to create test db: %v", err)
 	}
@@ -25,7 +24,6 @@ func teardownTestDBService(t *testing.T, testDB *db.DB) {
 	if testDB != nil {
 		testDB.Close()
 	}
-	os.RemoveAll(testDBPathService)
 }
 
 // Test service layer AddTask with various inputs and edge cases
@@ -237,9 +235,9 @@ func TestBlockTask_BusinessLogic(t *testing.T) {
 	// Test reason validation
 	// Re-create test tasks in a fresh database
 	database.Close()
-	os.RemoveAll(testDBPathService)
-	os.Setenv("PROJECT_ROOT", "/home/rwbaskette/tmp")
-	database, err = db.NewDB(testDBPathService)
+	tmpDir2 := t.TempDir()
+	os.Setenv("PROJECT_ROOT", tmpDir2)
+	database, err = db.NewDB(filepath.Join(tmpDir2, "test_service_business_logic.db"))
 	if err != nil {
 		t.Fatalf("failed to reopen database: %v", err)
 	}
@@ -266,7 +264,6 @@ func TestBlockTask_BusinessLogic(t *testing.T) {
 
 	// Close and cleanup
 	database.Close()
-	os.RemoveAll(testDBPathService)
 }
 
 // Test BlockTask appends reason to description
@@ -323,13 +320,13 @@ func TestResetTimedOut_BusinessLogic(t *testing.T) {
 			name:           "zero timeout should error",
 			timeoutMinutes: 0,
 			setupDB: func() (*db.DB, func()) {
-				os.Setenv("PROJECT_ROOT", "/home/rwbaskette/tmp")
-				testDB, _ := db.NewDB(testDBPathService)
+				tmpDir := t.TempDir()
+				os.Setenv("PROJECT_ROOT", tmpDir)
+				testDB, _ := db.NewDB(filepath.Join(tmpDir, "test_service_business_logic.db"))
 				return testDB, func() {
 					if testDB != nil {
 						testDB.Close()
 					}
-					os.RemoveAll(testDBPathService)
 				}
 			},
 			wantResetCount: 0,
@@ -339,13 +336,13 @@ func TestResetTimedOut_BusinessLogic(t *testing.T) {
 			name:           "negative timeout should error",
 			timeoutMinutes: -1,
 			setupDB: func() (*db.DB, func()) {
-				os.Setenv("PROJECT_ROOT", "/home/rwbaskette/tmp")
-				testDB, _ := db.NewDB(testDBPathService)
+				tmpDir := t.TempDir()
+				os.Setenv("PROJECT_ROOT", tmpDir)
+				testDB, _ := db.NewDB(filepath.Join(tmpDir, "test_service_business_logic.db"))
 				return testDB, func() {
 					if testDB != nil {
 						testDB.Close()
 					}
-					os.RemoveAll(testDBPathService)
 				}
 			},
 			wantResetCount: 0,
@@ -355,9 +352,9 @@ func TestResetTimedOut_BusinessLogic(t *testing.T) {
 			name:           "no in-progress tasks",
 			timeoutMinutes: 30,
 			setupDB: func() (*db.DB, func()) {
-				os.Setenv("PROJECT_ROOT", "/home/rwbaskette/tmp")
-				os.RemoveAll(testDBPathService)
-				testDB, _ := db.NewDB(testDBPathService)
+				tmpDir := t.TempDir()
+				os.Setenv("PROJECT_ROOT", tmpDir)
+				testDB, _ := db.NewDB(filepath.Join(tmpDir, "test_service_business_logic.db"))
 				// Only todo tasks
 				_, _ = AddTask(testDB, &AddTaskInput{ID: "t1", Title: "T1", Milestone: "m1"})
 				_, _ = AddTask(testDB, &AddTaskInput{ID: "t2", Title: "T2", Milestone: "m1"})
@@ -365,7 +362,6 @@ func TestResetTimedOut_BusinessLogic(t *testing.T) {
 					if testDB != nil {
 						testDB.Close()
 					}
-					os.RemoveAll(testDBPathService)
 				}
 			},
 			wantResetCount: 0,

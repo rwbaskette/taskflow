@@ -2,19 +2,18 @@ package service
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/rwbaskette/taskflow/internal/db"
 )
 
-const testDBPathComplete = "/home/rwbaskette/tmp/test_complete_task.db"
-
 func setupTestDBComplete(t *testing.T) *db.DB {
-	if err := os.RemoveAll(testDBPathComplete); err != nil {
-		t.Fatalf("failed to remove test db: %v", err)
-	}
-	os.Setenv("PROJECT_ROOT", "/home/rwbaskette/tmp")
-	testDB, err := db.NewDB(testDBPathComplete)
+	tmpDir := t.TempDir()
+	testDBPath := filepath.Join(tmpDir, "test_complete_task.db")
+	// Set project root for schema lookup
+	os.Setenv("PROJECT_ROOT", tmpDir)
+	testDB, err := db.NewDB(testDBPath)
 	if err != nil {
 		t.Fatalf("failed to create test db: %v", err)
 	}
@@ -25,7 +24,6 @@ func teardownTestDBComplete(t *testing.T, testDB *db.DB) {
 	if testDB != nil {
 		testDB.Close()
 	}
-	os.RemoveAll(testDBPathComplete)
 }
 
 func TestCompleteTask_ValidTaskCompletion(t *testing.T) {

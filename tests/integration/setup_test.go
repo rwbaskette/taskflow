@@ -17,17 +17,13 @@ type TestConfig struct {
 
 // setupTestDB creates a new test database for each test
 func setupTestDB(t *testing.T) *TestConfig {
-	// Create unique test database path
+	// Create unique test database path using OS-provided temp dir
+	tmpDir := t.TempDir()
 	testID := t.Name()
-	dbPath := filepath.Join("/home/rwbaskette/tmp", "test_integration_"+testID+".db")
-
-	// Ensure clean state - remove any existing test db
-	if err := os.RemoveAll(dbPath); err != nil {
-		t.Fatalf("failed to remove existing test db: %v", err)
-	}
+	dbPath := filepath.Join(tmpDir, "test_integration_"+testID+".db")
 
 	// Set project root for schema lookup
-	projectRoot := "/home/rwbaskette/tmp"
+	projectRoot := tmpDir
 	os.Setenv("PROJECT_ROOT", projectRoot)
 
 	// Create new database
