@@ -1,8 +1,10 @@
 package generator
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
+	"text/template"
 )
 
 const (
@@ -71,6 +73,12 @@ type ToolCommand struct {
 	Description string
 	Args        []ToolArg
 	Enums       []ToolEnum
+	// CLISubcommand is the subcommand passed to the binary (e.g. "list", "update").
+	// Defaults to Name (with underscores replaced by hyphens) if empty.
+	CLISubcommand string
+	// FixedStatus, when non-empty, is serialised as a literal "status" field in
+	// the JSON payload sent to the binary.
+	FixedStatus string
 }
 
 
@@ -111,8 +119,9 @@ func getToolCommandsWithEnums() []ToolCommand {
 			},
 		},
 		{
-			Name:        "list_all",
-			Description: "List all tasks with optional milestone filter.",
+			Name:          "list_all",
+			CLISubcommand: "list",
+			Description:   "List all tasks with optional milestone filter.",
 			Args: []ToolArg{
 				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
 				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
@@ -122,8 +131,10 @@ func getToolCommandsWithEnums() []ToolCommand {
 			},
 		},
 		{
-			Name:        "list_blocked",
-			Description: "List blocked tasks with optional milestone filter.",
+			Name:          "list_blocked",
+			CLISubcommand: "list",
+			FixedStatus:   "blocked",
+			Description:   "List blocked tasks with optional milestone filter.",
 			Args: []ToolArg{
 				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
 				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
@@ -132,8 +143,10 @@ func getToolCommandsWithEnums() []ToolCommand {
 			},
 		},
 		{
-			Name:        "list_done",
-			Description: "List completed tasks with optional milestone filter.",
+			Name:          "list_done",
+			CLISubcommand: "list",
+			FixedStatus:   "done",
+			Description:   "List completed tasks with optional milestone filter.",
 			Args: []ToolArg{
 				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
 				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
@@ -142,8 +155,10 @@ func getToolCommandsWithEnums() []ToolCommand {
 			},
 		},
 		{
-			Name:        "list_status_in_progress",
-			Description: "List in-progress tasks with optional milestone filter.",
+			Name:          "list_status_in_progress",
+			CLISubcommand: "list",
+			FixedStatus:   "in_progress",
+			Description:   "List in-progress tasks with optional milestone filter.",
 			Args: []ToolArg{
 				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
 				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
@@ -152,8 +167,10 @@ func getToolCommandsWithEnums() []ToolCommand {
 			},
 		},
 		{
-			Name:        "list_status_todo",
-			Description: "List todo tasks with optional milestone filter.",
+			Name:          "list_status_todo",
+			CLISubcommand: "list",
+			FixedStatus:   "todo",
+			Description:   "List todo tasks with optional milestone filter.",
 			Args: []ToolArg{
 				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
 				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
@@ -162,15 +179,18 @@ func getToolCommandsWithEnums() []ToolCommand {
 			},
 		},
 		{
-			Name:        "reset_timedout",
-			Description: "Reset timed out tasks to todo status. Finds in-progress tasks that have exceeded the specified timeout duration.",
+			Name:          "reset_timedout",
+			CLISubcommand: "reset-timedout",
+			Description:   "Reset timed out tasks to todo status. Finds in-progress tasks that have exceeded the specified timeout duration.",
 			Args: []ToolArg{
 				{Name: "minutes", Type: "number", Description: "Timeout duration in minutes (default: 30)", Required: false},
 			},
 		},
 		{
-			Name:        "start",
-			Description: "Start working on a task by moving it to in-progress status.",
+			Name:          "start",
+			CLISubcommand: "update",
+			FixedStatus:   "in_progress",
+			Description:   "Start working on a task by moving it to in-progress status.",
 			Args: []ToolArg{
 				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
 			},
@@ -178,192 +198,94 @@ func getToolCommandsWithEnums() []ToolCommand {
 	}
 }
 
-// generateZodSchema generates a Zod schema for a tool argument
-func generateZodSchema(arg ToolArg) string {
-	switch arg.Type {
-	case "string":
-		return fmt.Sprintf("tool.schema.string().describe(%q)", arg.Description)
-	case "number":
-		return fmt.Sprintf("tool.schema.number().describe(%q)", arg.Description)
-	case "boolean":
-		return fmt.Sprintf("tool.schema.boolean().describe(%q)", arg.Description)
-	default:
-		return fmt.Sprintf("tool.schema.string().describe(%q)", arg.Description)
-	}
-}
-
-// generateEnumSchema generates a Zod enum schema
-func generateEnumSchema(enum ToolEnum) string {
-	values := make([]string, len(enum.Values))
-	descs := make([]string, len(enum.Values))
-	for i, v := range enum.Values {
-		values[i] = fmt.Sprintf("%q", v.Value)
-		descs[i] = fmt.Sprintf("%s: %s", v.Value, v.Description)
-	}
-	return fmt.Sprintf("tool.schema.enum([%s]).describe(%q)", strings.Join(values, ", "), enum.Description)
-}
-
-// generateArgsSchema generates the args schema for a tool
-func generateArgsSchema(args []ToolArg, enums []ToolEnum) string {
-	if len(args) == 0 && len(enums) == 0 {
-		return "  args: {},\n"
-	}
-
-	var b strings.Builder
-	b.WriteString("  args: {\n")
-
-	// Generate enum args first (status, format)
-	for _, e := range enums {
-		b.WriteString(fmt.Sprintf("    %s: %s", e.Name, generateEnumSchema(e)))
-		b.WriteString(",\n")
-	}
-
-	// Generate regular args
-	for i, arg := range args {
-		b.WriteString(fmt.Sprintf("    %s: %s", arg.Name, generateZodSchema(arg)))
-		if i < len(args)-1 {
-			b.WriteString(",")
+// toolWrapperTmpl is the text/template used to render all tool wrappers.
+// Template data is toolWrapperTmplData.
+var toolWrapperTmpl = template.Must(template.New("tool-wrapper").Funcs(template.FuncMap{
+	// zodSchema returns the tool.schema.* call for a plain ToolArg.
+	"zodSchema": func(arg ToolArg) string {
+		switch arg.Type {
+		case "number":
+			return fmt.Sprintf("tool.schema.number().describe(%q)", arg.Description)
+		case "boolean":
+			return fmt.Sprintf("tool.schema.boolean().describe(%q)", arg.Description)
+		default:
+			return fmt.Sprintf("tool.schema.string().describe(%q)", arg.Description)
 		}
-		b.WriteString("\n")
-	}
-	b.WriteString("  },\n")
-	return b.String()
+	},
+	// enumSchema returns the tool.schema.enum([...]).describe(...) call.
+	"enumSchema": func(enum ToolEnum) string {
+		vals := make([]string, len(enum.Values))
+		for i, v := range enum.Values {
+			vals[i] = fmt.Sprintf("%q", v.Value)
+		}
+		return fmt.Sprintf("tool.schema.enum([%s]).describe(%q)", strings.Join(vals, ", "), enum.Description)
+	},
+	// last returns true when i is the last index of a slice of length n.
+	"last": func(i, n int) bool { return i == n-1 },
+	// cliSub returns the CLI subcommand for a command, falling back to Name.
+	"cliSub": func(cmd ToolCommand) string {
+		if cmd.CLISubcommand != "" {
+			return cmd.CLISubcommand
+		}
+		return cmd.Name
+	},
+}).Parse(`import { tool } from "@opencode-ai/plugin";
+{{- $bin := .BinaryPath}}
+{{range $i, $cmd := .Commands}}
+export const task_{{$cmd.Name}} = tool({
+  description: {{printf "%q" $cmd.Description}},
+  args: {
+{{- range $cmd.Enums}}
+    {{.Name}}: {{enumSchema .}},
+{{- end}}
+{{- range $i, $arg := $cmd.Args}}
+    {{$arg.Name}}: {{zodSchema $arg}}{{if not (last $i (len $cmd.Args))}},{{end}}
+{{- end}}
+  },
+  async execute(args, context) {
+    const cmdArgs = [];
+    cmdArgs.push("{{cliSub $cmd}}");
+    const payload = {
+{{- range $cmd.Args}}
+      {{.Name}}: args.{{.Name}},
+{{- end}}
+{{- if $cmd.FixedStatus}}
+      status: "{{$cmd.FixedStatus}}",
+{{- end}}
+    };
+    cmdArgs.push(JSON.stringify(payload));
+
+    const { execFileSync } = await import("child_process");
+    const result = execFileSync(` + "`" + `{{$bin}}` + "`" + `, cmdArgs, {
+      encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"]
+    });
+
+    return result;
+  },
+});
+{{end}}`))
+
+// toolWrapperTmplData is the data passed to toolWrapperTmpl.
+type toolWrapperTmplData struct {
+	BinaryPath string
+	Commands   []ToolCommand
 }
 
-// GenerateToolWrapper generates a TypeScript tool wrapper using the tool() helper format
+// GenerateToolWrapper generates a TypeScript tool wrapper using the tool() helper format.
 func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 	if opts == nil {
 		opts = DefaultToolWrapperOptions()
 	}
-
 	if opts.BinaryPath == "" {
 		opts.BinaryPath = "taskflow"
 	}
 
-	commands := getToolCommandsWithEnums()
-
-	var b strings.Builder
-
-	b.WriteString("import { tool } from \"@opencode-ai/plugin\";\n\n")
-
-	for i, cmd := range commands {
-		toolName := fmt.Sprintf("task_%s", cmd.Name)
-		b.WriteString(fmt.Sprintf("export const %s = tool({\n", toolName))
-		b.WriteString(fmt.Sprintf("  description: %q,\n", cmd.Description))
-		b.WriteString(generateArgsSchema(cmd.Args, cmd.Enums))
-
-		b.WriteString("  async execute(args, context) {\n")
-		b.WriteString("    const cmdArgs = [];\n")
-
-		switch cmd.Name {
-		case "add":
-			b.WriteString("    cmdArgs.push(\"add\");\n")
-			b.WriteString("    const addJSON = JSON.stringify({\n")
-			b.WriteString("      id: args.id,\n")
-			b.WriteString("      title: args.title,\n")
-			b.WriteString("      description: args.description,\n")
-			b.WriteString("      milestone: args.milestone,\n")
-			b.WriteString("      actor: args.actor\n")
-			b.WriteString("    });\n")
-			b.WriteString("    cmdArgs.push(addJSON);\n")
-
-		case "block":
-			b.WriteString("    cmdArgs.push(\"block\");\n")
-			b.WriteString("    const blockJSON = JSON.stringify({\n")
-			b.WriteString("      id: args.id,\n")
-			b.WriteString("      reason: args.reason\n")
-			b.WriteString("    });\n")
-			b.WriteString("    cmdArgs.push(blockJSON);\n")
-
-		case "complete":
-			b.WriteString("    cmdArgs.push(\"complete\");\n")
-			b.WriteString("    const completeJSON = JSON.stringify({ id: args.id });\n")
-			b.WriteString("    cmdArgs.push(completeJSON);\n")
-
-		case "delete":
-			b.WriteString("    cmdArgs.push(\"delete\");\n")
-			b.WriteString("    const deleteJSON = JSON.stringify({ id: args.id });\n")
-			b.WriteString("    cmdArgs.push(deleteJSON);\n")
-
-		case "list_all":
-			b.WriteString("    cmdArgs.push(\"list\");\n")
-			b.WriteString("    const listAllJSON = JSON.stringify({\n")
-			b.WriteString("      milestone: args.milestone,\n")
-			b.WriteString("      actor: args.actor,\n")
-			b.WriteString("      limit: args.limit,\n")
-			b.WriteString("      offset: args.offset,\n")
-			b.WriteString("      all: args.all\n")
-			b.WriteString("    });\n")
-			b.WriteString("    cmdArgs.push(listAllJSON);\n")
-
-		case "list_blocked":
-			b.WriteString("    cmdArgs.push(\"list\");\n")
-			b.WriteString("    const listBlockedJSON = JSON.stringify({\n")
-			b.WriteString("      milestone: args.milestone,\n")
-			b.WriteString("      actor: args.actor,\n")
-			b.WriteString("      limit: args.limit,\n")
-			b.WriteString("      offset: args.offset,\n")
-			b.WriteString("      status: \"blocked\"\n")
-			b.WriteString("    });\n")
-			b.WriteString("    cmdArgs.push(listBlockedJSON);\n")
-
-		case "list_done":
-			b.WriteString("    cmdArgs.push(\"list\");\n")
-			b.WriteString("    const listDoneJSON = JSON.stringify({\n")
-			b.WriteString("      milestone: args.milestone,\n")
-			b.WriteString("      actor: args.actor,\n")
-			b.WriteString("      limit: args.limit,\n")
-			b.WriteString("      offset: args.offset,\n")
-			b.WriteString("      status: \"done\"\n")
-			b.WriteString("    });\n")
-			b.WriteString("    cmdArgs.push(listDoneJSON);\n")
-
-		case "list_status_in_progress":
-			b.WriteString("    cmdArgs.push(\"list\");\n")
-			b.WriteString("    const listInProgressJSON = JSON.stringify({\n")
-			b.WriteString("      milestone: args.milestone,\n")
-			b.WriteString("      actor: args.actor,\n")
-			b.WriteString("      limit: args.limit,\n")
-			b.WriteString("      offset: args.offset,\n")
-			b.WriteString("      status: \"in_progress\"\n")
-			b.WriteString("    });\n")
-			b.WriteString("    cmdArgs.push(listInProgressJSON);\n")
-
-		case "list_status_todo":
-			b.WriteString("    cmdArgs.push(\"list\");\n")
-			b.WriteString("    const listTodoJSON = JSON.stringify({\n")
-			b.WriteString("      milestone: args.milestone,\n")
-			b.WriteString("      actor: args.actor,\n")
-			b.WriteString("      limit: args.limit,\n")
-			b.WriteString("      offset: args.offset,\n")
-			b.WriteString("      status: \"todo\"\n")
-			b.WriteString("    });\n")
-			b.WriteString("    cmdArgs.push(listTodoJSON);\n")
-
-		case "reset_timedout":
-			b.WriteString("    cmdArgs.push(\"reset-timedout\");\n")
-			b.WriteString("    const resetJSON = JSON.stringify({ minutes: args.minutes });\n")
-			b.WriteString("    cmdArgs.push(resetJSON);\n")
-
-		case "start":
-			b.WriteString("    cmdArgs.push(\"update\");\n")
-			b.WriteString("    const updateJSON = JSON.stringify({ id: args.id, status: \"in_progress\" });\n")
-			b.WriteString("    cmdArgs.push(updateJSON);\n")
-		}
-
-		b.WriteString("\n")
-		b.WriteString("    const { execFileSync } = await import(\"child_process\");\n")
-		b.WriteString(fmt.Sprintf("    const result = execFileSync(`%s`, cmdArgs, {\n", opts.BinaryPath))
-		b.WriteString("      encoding: \"utf-8\", stdio: [\"pipe\", \"pipe\", \"pipe\"]\n")
-		b.WriteString("    });\n\n")
-		b.WriteString("    return result;\n")
-		b.WriteString("  },\n")
-		b.WriteString("});\n")
-
-		if i < len(commands)-1 {
-			b.WriteString("\n")
-		}
+	var buf bytes.Buffer
+	if err := toolWrapperTmpl.Execute(&buf, toolWrapperTmplData{
+		BinaryPath: opts.BinaryPath,
+		Commands:   getToolCommandsWithEnums(),
+	}); err != nil {
+		return "", fmt.Errorf("tool wrapper template: %w", err)
 	}
-
-	return b.String(), nil
+	return buf.String(), nil
 }
