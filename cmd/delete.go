@@ -43,7 +43,7 @@ var deleteCmd = &cobra.Command{
 			return
 		}
 
-		database, err := db.NewDB(".taskflow/tasks.db")
+		database, err := db.NewDB(db.DefaultDBPath())
 		if err != nil {
 			cliErrors.HandleError(err)
 			return

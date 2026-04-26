@@ -59,8 +59,18 @@ type cliResult struct {
 // so the CLI creates an isolated .taskflow/tasks.db there.
 func runCLI(t *testing.T, workdir string, args ...string) cliResult {
 	t.Helper()
+	return runCLIWithEnv(t, workdir, nil, args...)
+}
+
+// runCLIWithEnv executes the taskflow binary with custom environment variables.
+// env is a list of "KEY=value" pairs that are appended to the current environment.
+func runCLIWithEnv(t *testing.T, workdir string, env []string, args ...string) cliResult {
+	t.Helper()
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Dir = workdir
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -603,4 +613,120 @@ func TestReset_ZeroMinutes(t *testing.T) {
 	if len(strings.TrimSpace(r.combined)) == 0 {
 		t.Error("zero minutes should produce some output")
 	}
+}
+
+// --------------------------------------------------------------------------
+// TASKFLOW_DIR environment variable integration tests
+// --------------------------------------------------------------------------
+
+func TestAdd_CustomDBPath(t *testing.T) {
+	dir := tempWorkdir(t)
+	customDir := filepath.Join(dir, "custom_db")
+
+	// Set TASKFLOW_DIR to a custom location
+	r := runCLIWithEnv(t, dir, []string{"TASKFLOW_DIR=" + customDir}, "add", `{"id":"td-1","title":"Custom DB Task","milestone":"v1","actor":"tester","description":"Testing custom DB path"}`)
+	assertExitZero(t, r, "add with custom DB path")
+	assertContains(t, r.combined, "Task added successfully", "success message")
+
+	// Verify the database was created at the custom location
+	dbPath := filepath.Join(customDir, "tasks.db")
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		t.Errorf("expected database at %s, but it does not exist", dbPath)
+	}
+}
+
+func TestDefaultPathUnchanged(t *testing.T) {
+	// When TASKFLOW_DIR is NOT set, .taskflow/tasks.db should still be used.
+	dir := tempWorkdir(t)
+	r := runCLI(t, dir, "add", `{"id":"td-2","title":"Default Path Task","milestone":"v1","actor":"tester","description":"Default path still works"}`)
+	assertExitZero(t, r, "default path unchanged")
+	assertContains(t, r.combined, "Task added successfully", "success message")
+
+	// Verify the database was created at the default location
+	dbPath := filepath.Join(dir, ".taskflow", "tasks.db")
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		t.Errorf("expected database at %s, but it does not exist", dbPath)
+	}
+}
+
+func TestCrossCommand_CustomDBPath(t *testing.T) {
+	// Verify that add, complete, and list all work on the same custom database.
+	dir := tempWorkdir(t)
+	customDir := filepath.Join(dir, "custom_db")
+	env := []string{"TASKFLOW_DIR=" + customDir}
+
+	// Add a task
+	addResult := runCLIWithEnv(t, dir, env, "add", `{"id":"td-cross-1","title":"Cross Command Task","milestone":"v1","actor":"tester","description":"Cross command test"}`)
+	assertExitZero(t, addResult, "add for cross command test")
+
+	// Complete the task
+	completeResult := runCLIWithEnv(t, dir, env, "complete", `{"id":"td-cross-1"}`)
+	assertExitZero(t, completeResult, "complete for cross command test")
+	assertContains(t, completeResult.combined, "Task completed successfully", "completion success")
+
+	// List tasks (should show completed task)
+	listResult := runCLIWithEnv(t, dir, env, "list", `{}`)
+	assertExitZero(t, listResult, "list for cross command test")
+}
+
+func TestBlock_CustomDBPath(t *testing.T) {
+	dir := tempWorkdir(t)
+	customDir := filepath.Join(dir, "custom_db")
+	env := []string{"TASKFLOW_DIR=" + customDir}
+
+	// Add a task first
+	addResult := runCLIWithEnv(t, dir, env, "add", `{"id":"td-block-1","title":"Block Test Task","milestone":"v1","actor":"tester","description":"Block test"}`)
+	assertExitZero(t, addResult, "add before block")
+
+	// Block the task
+	blockResult := runCLIWithEnv(t, dir, env, "block", `{"id":"td-block-1","reason":"Testing custom DB path"}`)
+	assertExitZero(t, blockResult, "block with custom DB path")
+	assertContains(t, blockResult.combined, "Task blocked successfully", "block success")
+}
+
+func TestUpdate_CustomDBPath(t *testing.T) {
+	dir := tempWorkdir(t)
+	customDir := filepath.Join(dir, "custom_db")
+	env := []string{"TASKFLOW_DIR=" + customDir}
+
+	// Add a task first
+	addResult := runCLIWithEnv(t, dir, env, "add", `{"id":"td-upd-1","title":"Original","milestone":"v1","actor":"tester","description":"Test"}`)
+	assertExitZero(t, addResult, "add before update")
+
+	// Update the task
+	updateResult := runCLIWithEnv(t, dir, env, "update", `{"id":"td-upd-1","title":"Updated Title"}`)
+	assertExitZero(t, updateResult, "update with custom DB path")
+	assertContains(t, updateResult.combined, "Task updated successfully", "update success")
+}
+
+func TestDelete_CustomDBPath(t *testing.T) {
+	dir := tempWorkdir(t)
+	customDir := filepath.Join(dir, "custom_db")
+	env := []string{"TASKFLOW_DIR=" + customDir}
+
+	// Add a task first
+	addResult := runCLIWithEnv(t, dir, env, "add", `{"id":"td-del-1","title":"Delete Me","milestone":"v1","actor":"tester","description":"Delete test"}`)
+	assertExitZero(t, addResult, "add before delete")
+
+	// Delete the task
+	deleteResult := runCLIWithEnv(t, dir, env, "delete", `{"id":"td-del-1"}`)
+	assertExitZero(t, deleteResult, "delete with custom DB path")
+	assertContains(t, deleteResult.combined, "Task deleted successfully", "delete success")
+}
+
+func TestReset_CustomDBPath(t *testing.T) {
+	dir := tempWorkdir(t)
+	customDir := filepath.Join(dir, "custom_db")
+	env := []string{"TASKFLOW_DIR=" + customDir}
+
+	// Reset with minutes parameter
+	r := runCLIWithEnv(t, dir, env, "reset-timedout", `{"minutes":30}`)
+	assertExitZero(t, r, "reset with custom DB path")
+}
+
+func TestHelp_ShowsTaskflowDir(t *testing.T) {
+	dir := tempWorkdir(t)
+	r := runCLI(t, dir, "--help")
+	assertExitZero(t, r, "help")
+	assertContains(t, r.combined, "TASKFLOW_DIR", "help shows TASKFLOW_DIR")
 }

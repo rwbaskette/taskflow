@@ -133,6 +133,20 @@ func (db *DB) migrate() error {
 	return nil
 }
 
+// DefaultDBPath returns the database path based on the TASKFLOW_DIR environment variable.
+// If TASKFLOW_DIR is set and non-empty, returns "$TASKFLOW_DIR/tasks.db" (resolved to absolute path).
+// Otherwise, returns the default ".taskflow/tasks.db".
+func DefaultDBPath() string {
+	if dir := os.Getenv("TASKFLOW_DIR"); dir != "" {
+		absPath, err := filepath.Abs(dir)
+		if err != nil {
+			return filepath.Join(dir, "tasks.db")
+		}
+		return filepath.Join(absPath, "tasks.db")
+	}
+	return ".taskflow/tasks.db"
+}
+
 // DB returns the underlying sql.DB for direct queries if needed
 func (db *DB) DB() *sql.DB {
 	return db.conn

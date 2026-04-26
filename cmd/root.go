@@ -19,7 +19,12 @@ var rootCmd = &cobra.Command{
 	Long: `Task is a CLI tool for managing tasks with support for
 adding, updating, completing, blocking, listing, and resetting tasks.
 
-For more information, visit the project documentation.`,
+For more information, visit the project documentation.
+
+Environment Variables:
+  TASKFLOW_DIR  Custom directory for the database (default: .taskflow)
+                  When set, the database will be created at $TASKFLOW_DIR/tasks.db
+                  Example: TASKFLOW_DIR=/tmp/work/taskflow taskflow list`,
 	Version: version,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {

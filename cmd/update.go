@@ -21,7 +21,7 @@ var updateCmd = &cobra.Command{
   task update -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		database, err := db.NewDB(".taskflow/tasks.db")
+		database, err := db.NewDB(db.DefaultDBPath())
 		if err != nil {
 			cliErrors.HandleError(err)
 			return
