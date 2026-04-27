@@ -1,0 +1,65 @@
+package service
+
+import (
+	"time"
+
+	"github.com/rwbaskette/taskflow/internal/db"
+)
+
+// AddTaskInput contains the input parameters for adding a task
+type AddTaskInput struct {
+	ID          string
+	Milestone   string
+	Title       string
+	Description string
+	Actor       string
+}
+
+// AddTaskResult contains the result of adding a task
+type AddTaskResult struct {
+	ID          string
+	Milestone   string
+	Title       string
+	Description string
+	Actor       string
+	Status      string
+	LastUpdated time.Time
+}
+
+// AddTask creates a new task in the database
+func AddTask(database *db.DB, input *AddTaskInput) (*AddTaskResult, error) {
+	if database == nil {
+		return nil, ErrNilDatabase
+	}
+
+	if input == nil {
+		return nil, ErrNilInput
+	}
+
+	// Create the task
+	task := &db.Task{
+		ID:          input.ID,
+		Milestone:   input.Milestone,
+		Title:       input.Title,
+		Description: input.Description,
+		Status:      "todo",
+		Actor:       input.Actor,
+		LastUpdated: time.Now().UTC(),
+	}
+
+	// Insert into database
+	if err := database.CreateTask(task); err != nil {
+		return nil, err
+	}
+
+	// Return the result
+	return &AddTaskResult{
+		ID:          task.ID,
+		Milestone:   task.Milestone,
+		Title:       task.Title,
+		Description: task.Description,
+		Actor:       task.Actor,
+		Status:      task.Status,
+		LastUpdated: task.LastUpdated,
+	}, nil
+}
