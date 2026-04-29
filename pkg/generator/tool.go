@@ -230,6 +230,7 @@ var toolWrapperTmpl = template.Must(template.New("tool-wrapper").Funcs(template.
 		return cmd.Name
 	},
 }).Parse(`import { tool } from "@opencode-ai/plugin";
+import { execFileSync } from "child_process";
 {{- $bin := .BinaryPath}}
 {{range $i, $cmd := .Commands}}
 export const task_{{$cmd.Name}} = tool({
@@ -255,9 +256,8 @@ export const task_{{$cmd.Name}} = tool({
     };
     cmdArgs.push(JSON.stringify(payload));
 
-    const { execFileSync } = await import("child_process");
     const result = execFileSync(` + "`" + `{{$bin}}` + "`" + `, cmdArgs, {
-      encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"]
+      encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], cwd: context.worktree
     });
 
     return result;

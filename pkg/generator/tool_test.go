@@ -325,19 +325,6 @@ func TestGenerateToolWrapperReturnsNonEmpty(t *testing.T) {
 	}
 }
 
-func TestGenerateToolWrapperContainsChildProcessImport(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	// Verify child_process is imported dynamically
-	if !strings.Contains(result, "await import(\"child_process\")") {
-		t.Error("GenerateToolWrapper() should dynamically import child_process")
-	}
-}
-
 func TestGenerateToolWrapperReturnsResult(t *testing.T) {
 	opts := DefaultToolWrapperOptions()
 	result, err := GenerateToolWrapper(opts)
@@ -365,7 +352,3 @@ func TestGenerateToolWrapperHandlesDashesInCommandNames(t *testing.T) {
 		t.Error("Command name with underscores should be preserved")
 	}
 }
-
-
-
-
