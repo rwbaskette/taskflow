@@ -41,7 +41,7 @@ go build -o taskflow .
 Installation is assumed to use standard go conventions:
 
 ```bash
-go install . && taskflow tool-wrapper > ~/.config/opencode/tools/taskflow.ts
+go install .
 ```
 
 ### OpenCode Tool Wrapper Setup
