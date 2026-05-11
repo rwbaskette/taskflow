@@ -36,30 +36,13 @@ go mod download
 go build -o taskflow .
 ```
 
-### Install to PATH
+### Install
 
-To make `taskflow` available system-wide:
-
-```bash
-# Install the binary to a directory in your PATH
-# Common locations:
-#   ~/.local/bin/       (user-local binaries)
-#   /usr/local/bin/     (system-wide binaries, requires sudo)
-
-# Example: Install to user-local bin
-install -Dm755 taskflow ~/.local/bin/taskflow
-
-# Or for system-wide installation:
-sudo install -Dm755 taskflow /usr/local/bin/taskflow
-```
-
-### One-Line Install
+Installation is assumed to use standard go conventions:
 
 ```bash
-./install.sh
+go install .
 ```
-
-This builds the binary to `~/.local/bin/taskflow` and generates the OpenCode tool wrapper.
 
 ### OpenCode Tool Wrapper Setup
 
