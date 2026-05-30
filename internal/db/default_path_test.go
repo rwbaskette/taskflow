@@ -2,6 +2,7 @@ package db
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -9,10 +10,10 @@ func TestDefaultDBPath_WithEnvVar(t *testing.T) {
 	original := os.Getenv("TASKFLOW_DIR")
 	defer func() { os.Setenv("TASKFLOW_DIR", original) }()
 
-	os.Setenv("TASKFLOW_DIR", "/tmp/custom/taskflow")
+	os.Setenv("TASKFLOW_DIR", filepath.Join(os.TempDir(), "custom", "taskflow"))
 
 	got := DefaultDBPath()
-	want := "/tmp/custom/taskflow/tasks.db"
+	want := filepath.Join(os.TempDir(), "custom", "taskflow", "tasks.db")
 	if got != want {
 		t.Errorf("DefaultDBPath() = %v, want %v", got, want)
 	}
@@ -48,10 +49,11 @@ func TestDefaultDBPath_AbsolutePath(t *testing.T) {
 	original := os.Getenv("TASKFLOW_DIR")
 	defer func() { os.Setenv("TASKFLOW_DIR", original) }()
 
-	os.Setenv("TASKFLOW_DIR", "/opt/data")
+	// Use temp dir as a base - it's an absolute path on both Windows and Unix
+	os.Setenv("TASKFLOW_DIR", filepath.Join(os.TempDir(), "opt", "data"))
 
 	got := DefaultDBPath()
-	want := "/opt/data/tasks.db"
+	want := filepath.Join(os.TempDir(), "opt", "data", "tasks.db")
 	if got != want {
 		t.Errorf("DefaultDBPath() = %v, want %v", got, want)
 	}
@@ -78,10 +80,10 @@ func TestDefaultDBPath_TrailingSlash(t *testing.T) {
 	original := os.Getenv("TASKFLOW_DIR")
 	defer func() { os.Setenv("TASKFLOW_DIR", original) }()
 
-	os.Setenv("TASKFLOW_DIR", "/tmp/work/")
+	os.Setenv("TASKFLOW_DIR", filepath.Join(os.TempDir(), "work")+string(os.PathSeparator))
 
 	got := DefaultDBPath()
-	want := "/tmp/work/tasks.db"
+	want := filepath.Join(os.TempDir(), "work", "tasks.db")
 	if got != want {
 		t.Errorf("DefaultDBPath() = %v, want %v", got, want)
 	}
