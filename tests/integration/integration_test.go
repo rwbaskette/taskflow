@@ -2,6 +2,7 @@ package integration
 
 import (
 	"testing"
+	"time"
 
 	"github.com/rwbaskette/taskflow/internal/service"
 )
@@ -357,6 +358,7 @@ func TestMultiCommandSequence(t *testing.T) {
 	initialTime := addResult.LastUpdated
 
 	// Small delay to ensure timestamp changes
+	time.Sleep(time.Millisecond)
 	// Step 2: Update the task
 	updateInput := &service.UpdateTaskInput{
 		ID:          "seq-001",
@@ -375,6 +377,9 @@ func TestMultiCommandSequence(t *testing.T) {
 	if !updatedTime.After(initialTime) {
 		t.Errorf("expected updated timestamp after initial time")
 	}
+
+	// Small delay to ensure timestamp changes before complete
+	time.Sleep(time.Millisecond)
 
 	// Step 3: Complete the task
 	completeResult, err := service.CompleteTask(cfg.DB, &service.CompleteTaskInput{ID: "seq-001"})

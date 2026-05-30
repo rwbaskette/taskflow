@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 
 	_ "embed"
 )
@@ -36,7 +36,7 @@ func NewDB(dbPath string) (*DB, error) {
 	}
 
 	// Open database connection with SQLite
-	conn, err := sql.Open("sqlite3", absPath+"?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=10000")
+	conn, err := sql.Open("sqlite", "file:"+absPath+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(10000)&_pragma=time_format(sqlite)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
