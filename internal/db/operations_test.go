@@ -877,3 +877,389 @@ func TestErrorPredicates(t *testing.T) {
 		}
 	})
 }
+
+// ===== Database-Level Unblock Validation Tests =====
+
+func TestUnblockTask(t *testing.T) {
+	db := setupTestDB(t)
+	defer teardownTestDB(t, db)
+
+	t.Run("unblock blocked task succeeds", func(t *testing.T) {
+		// Create a task and block it
+		db.CreateTask(&Task{
+			ID:     "unblock-success",
+			Title:  "Blocked Task",
+			Status: "blocked",
+		})
+
+		// Unblock with nil description
+		now := time.Now().UTC()
+		err := db.UnblockTask("unblock-success", nil, now)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Verify the task is now in todo status
+		updated, err := db.ReadTask("unblock-success")
+		if err != nil {
+			t.Fatalf("failed to read task: %v", err)
+		}
+		if updated.Status != "todo" {
+			t.Errorf("expected status 'todo', got %s", updated.Status)
+		}
+	})
+
+	t.Run("unblock with new description overwrites description", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:          "unblock-desc",
+			Title:       "Task With Description",
+			Status:      "blocked",
+			Description: "Original description",
+		})
+
+		newDesc := "New description after unblock"
+		now := time.Now().UTC()
+		err := db.UnblockTask("unblock-desc", &newDesc, now)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		updated, err := db.ReadTask("unblock-desc")
+		if err != nil {
+			t.Fatalf("failed to read task: %v", err)
+		}
+		if updated.Status != "todo" {
+			t.Errorf("expected status 'todo', got %s", updated.Status)
+		}
+		if updated.Description != newDesc {
+			t.Errorf("expected description %q, got %q", newDesc, updated.Description)
+		}
+	})
+
+	t.Run("unblock non-blocked task fails", func(t *testing.T) {
+		// Create a task in todo status
+		db.CreateTask(&Task{
+			ID:     "unblock-not-blocked",
+			Title:  "Not Blocked Task",
+			Status: "todo",
+		})
+
+		now := time.Now().UTC()
+		err := db.UnblockTask("unblock-not-blocked", nil, now)
+		if err == nil {
+			t.Fatal("expected error when unblocking a non-blocked task")
+		}
+		if !IsTaskNotFound(err) {
+			t.Errorf("expected TaskNotFoundError, got %v", err)
+		}
+
+		// Verify the task status was not changed
+		updated, err := db.ReadTask("unblock-not-blocked")
+		if err != nil {
+			t.Fatalf("failed to read task: %v", err)
+		}
+		if updated.Status != "todo" {
+			t.Errorf("expected status to remain 'todo', got %s", updated.Status)
+		}
+	})
+
+	t.Run("unblock done task fails", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:     "unblock-done",
+			Title:  "Done Task",
+			Status: "done",
+		})
+
+		now := time.Now().UTC()
+		err := db.UnblockTask("unblock-done", nil, now)
+		if err == nil {
+			t.Fatal("expected error when unblocking a done task")
+		}
+
+		updated, err := db.ReadTask("unblock-done")
+		if err != nil {
+			t.Fatalf("failed to read task: %v", err)
+		}
+		if updated.Status != "done" {
+			t.Errorf("expected status to remain 'done', got %s", updated.Status)
+		}
+	})
+
+	t.Run("unblock in_progress task fails", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:     "unblock-inprogress",
+			Title:  "In Progress Task",
+			Status: "in_progress",
+		})
+
+		now := time.Now().UTC()
+		err := db.UnblockTask("unblock-inprogress", nil, now)
+		if err == nil {
+			t.Fatal("expected error when unblocking an in_progress task")
+		}
+
+		updated, err := db.ReadTask("unblock-inprogress")
+		if err != nil {
+			t.Fatalf("failed to read task: %v", err)
+		}
+		if updated.Status != "in_progress" {
+			t.Errorf("expected status to remain 'in_progress', got %s", updated.Status)
+		}
+	})
+
+	t.Run("unblock non-existent task fails", func(t *testing.T) {
+		now := time.Now().UTC()
+		err := db.UnblockTask("nonexistent-task", nil, now)
+		if err == nil {
+			t.Fatal("expected error when unblocking a non-existent task")
+		}
+		if !IsTaskNotFound(err) {
+			t.Errorf("expected TaskNotFoundError, got %v", err)
+		}
+	})
+
+	t.Run("unblock clears blocked_by to NULL", func(t *testing.T) {
+		// Create a task with blocked_by set
+		db.CreateTask(&Task{
+			ID:        "unblock-clear-blockedby",
+			Title:     "Blocked By Task",
+			Status:    "blocked",
+			BlockedBy: []string{"dep-1"},
+		})
+
+		now := time.Now().UTC()
+		err := db.UnblockTask("unblock-clear-blockedby", nil, now)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Read the raw database record to verify blocked_by is NULL
+		var blockedByStr *string
+		err = db.conn.QueryRow("SELECT blocked_by FROM tasks WHERE id = ?", "unblock-clear-blockedby").Scan(&blockedByStr)
+		if err != nil {
+			t.Fatalf("failed to read raw blocked_by: %v", err)
+		}
+		if blockedByStr != nil {
+			t.Errorf("expected blocked_by to be NULL, got %q", *blockedByStr)
+		}
+	})
+
+	t.Run("unblock updates last_updated timestamp", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:     "unblock-timestamp",
+			Title:  "Timestamp Test",
+			Status: "blocked",
+		})
+
+		// Read the original last_updated
+		original, _ := db.ReadTask("unblock-timestamp")
+		originalUpdated := original.LastUpdated
+
+		// Wait to ensure time difference
+		time.Sleep(10 * time.Millisecond)
+
+		now := time.Now().UTC()
+		err := db.UnblockTask("unblock-timestamp", nil, now)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Read the updated task
+		updated, err := db.ReadTask("unblock-timestamp")
+		if err != nil {
+			t.Fatalf("failed to read task: %v", err)
+		}
+		if updated.LastUpdated.Before(originalUpdated) {
+			t.Error("expected last_updated to be updated")
+		}
+	})
+
+	t.Run("unblock idempotency - second unblock fails", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:     "unblock-idempotent",
+			Title:  "Idempotent Test",
+			Status: "blocked",
+		})
+
+		now := time.Now().UTC()
+
+		// First unblock should succeed
+		err := db.UnblockTask("unblock-idempotent", nil, now)
+		if err != nil {
+			t.Fatalf("first unblock failed: %v", err)
+		}
+
+		// Second unblock should fail (task is now in todo status)
+		now = time.Now().UTC()
+		err = db.UnblockTask("unblock-idempotent", nil, now)
+		if err == nil {
+			t.Fatal("expected error on second unblock")
+		}
+
+		// Verify status is still todo
+		updated, _ := db.ReadTask("unblock-idempotent")
+		if updated.Status != "todo" {
+			t.Errorf("expected status to remain 'todo', got %s", updated.Status)
+		}
+	})
+
+	t.Run("unblock with empty id fails", func(t *testing.T) {
+		now := time.Now().UTC()
+		err := db.UnblockTask("", nil, now)
+		if err == nil {
+			t.Fatal("expected error for empty id")
+		}
+		if err != ErrInvalidID {
+			t.Errorf("expected ErrInvalidID, got %v", err)
+		}
+	})
+
+	t.Run("unblock nil db fails", func(t *testing.T) {
+		var nilDB *DB
+		now := time.Now().UTC()
+		err := nilDB.UnblockTask("test", nil, now)
+		if err == nil {
+			t.Fatal("expected error for nil db")
+		}
+		if err != ErrNilDB {
+			t.Errorf("expected ErrNilDB, got %v", err)
+		}
+	})
+}
+
+func TestUnblockTaskTx(t *testing.T) {
+	db := setupTestDB(t)
+	defer teardownTestDB(t, db)
+
+	t.Run("unblock in transaction succeeds", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:     "tx-unblock",
+			Title:  "Tx Unblock Task",
+			Status: "blocked",
+		})
+
+		tx, err := db.BeginTx()
+		if err != nil {
+			t.Fatalf("BeginTx failed: %v", err)
+		}
+		defer tx.Rollback()
+
+		now := time.Now().UTC()
+		err = db.UnblockTaskTx(tx, "tx-unblock", nil, now)
+		if err != nil {
+			t.Fatalf("UnblockTaskTx failed: %v", err)
+		}
+
+		tx.Commit()
+
+		updated, err := db.ReadTask("tx-unblock")
+		if err != nil {
+			t.Fatalf("failed to read task: %v", err)
+		}
+		if updated.Status != "todo" {
+			t.Errorf("expected status 'todo', got %s", updated.Status)
+		}
+	})
+
+	t.Run("unblock in transaction with description", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:          "tx-unblock-desc",
+			Title:       "Tx Unblock With Description",
+			Status:      "blocked",
+			Description: "Original",
+		})
+
+		tx, err := db.BeginTx()
+		if err != nil {
+			t.Fatalf("BeginTx failed: %v", err)
+		}
+		defer tx.Rollback()
+
+		newDesc := "Updated description in tx"
+		now := time.Now().UTC()
+		err = db.UnblockTaskTx(tx, "tx-unblock-desc", &newDesc, now)
+		if err != nil {
+			t.Fatalf("UnblockTaskTx failed: %v", err)
+		}
+
+		tx.Commit()
+
+		updated, err := db.ReadTask("tx-unblock-desc")
+		if err != nil {
+			t.Fatalf("failed to read task: %v", err)
+		}
+		if updated.Status != "todo" {
+			t.Errorf("expected status 'todo', got %s", updated.Status)
+		}
+		if updated.Description != newDesc {
+			t.Errorf("expected description %q, got %q", newDesc, updated.Description)
+		}
+	})
+
+	t.Run("unblock non-blocked in transaction fails", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:     "tx-unblock-not-blocked",
+			Title:  "Not Blocked In Tx",
+			Status: "todo",
+		})
+
+		tx, err := db.BeginTx()
+		if err != nil {
+			t.Fatalf("BeginTx failed: %v", err)
+		}
+		defer tx.Rollback()
+
+		now := time.Now().UTC()
+		err = db.UnblockTaskTx(tx, "tx-unblock-not-blocked", nil, now)
+		if err == nil {
+			t.Fatal("expected error when unblocking non-blocked task in tx")
+		}
+
+		updated, err := db.ReadTask("tx-unblock-not-blocked")
+		if err != nil {
+			t.Fatalf("failed to read task: %v", err)
+		}
+		if updated.Status != "todo" {
+			t.Errorf("expected status to remain 'todo', got %s", updated.Status)
+		}
+	})
+
+	t.Run("nil transaction fails", func(t *testing.T) {
+		now := time.Now().UTC()
+		err := db.UnblockTaskTx(nil, "test", nil, now)
+		if err == nil {
+			t.Fatal("expected error for nil transaction")
+		}
+	})
+
+	t.Run("transaction rollback prevents unblock", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:     "tx-unblock-rollback",
+			Title:  "Rollback Test",
+			Status: "blocked",
+		})
+
+		tx, err := db.BeginTx()
+		if err != nil {
+			t.Fatalf("BeginTx failed: %v", err)
+		}
+
+		now := time.Now().UTC()
+		err = db.UnblockTaskTx(tx, "tx-unblock-rollback", nil, now)
+		if err != nil {
+			t.Fatalf("UnblockTaskTx failed: %v", err)
+		}
+
+		// Rollback instead of commit
+		tx.Rollback()
+
+		// Verify the task is still blocked
+		updated, err := db.ReadTask("tx-unblock-rollback")
+		if err != nil {
+			t.Fatalf("failed to read task: %v", err)
+		}
+		if updated.Status != "blocked" {
+			t.Errorf("expected status to remain 'blocked' after rollback, got %s", updated.Status)
+		}
+	})
+}

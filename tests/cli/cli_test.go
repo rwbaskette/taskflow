@@ -439,6 +439,83 @@ func TestBlock_NonExistentTask(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
+// Unblock command tests
+// --------------------------------------------------------------------------
+
+func TestUnblock_NoArguments(t *testing.T) {
+	dir := tempWorkdir(t)
+	r := runCLI(t, dir, "unblock")
+	assertExitNonZero(t, r, "no args")
+	assertError(t, r, "no args")
+}
+
+func TestUnblock_ByID(t *testing.T) {
+	dir := tempWorkdir(t)
+	// Add a task
+	addTask(t, dir, `{"id":"unblk-1","title":"Task to Unblock","milestone":"v1","actor":"tester","description":"desc"}`)
+
+	// Block the task first
+	r := runCLI(t, dir, "block", `{"id":"unblk-1","reason":"Need to block first"}`)
+	assertExitZero(t, r, "block first")
+	assertContains(t, r.combined, "Task blocked successfully", "block success")
+
+	// Now unblock it
+	r = runCLI(t, dir, "unblock", `{"id":"unblk-1"}`)
+	assertExitZero(t, r, "unblock by id")
+	assertContains(t, r.combined, "Task unblocked successfully", "success message")
+	assertContains(t, r.combined, "unblk-1", "task id")
+	assertContains(t, r.combined, "todo", "new status")
+}
+
+func TestUnblock_WithDescription(t *testing.T) {
+	dir := tempWorkdir(t)
+	addTask(t, dir, `{"id":"unblk-2","title":"Update Desc Task","milestone":"v1","actor":"tester","description":"old desc"}`)
+
+	// Block the task
+	runCLI(t, dir, "block", `{"id":"unblk-2","reason":"Blocking"}`)
+
+	// Unblock with new description
+	r := runCLI(t, dir, "unblock", `{"id":"unblk-2","description":"new description after unblock"}`)
+	assertExitZero(t, r, "unblock with description")
+	assertContains(t, r.combined, "Task unblocked successfully", "success message")
+}
+
+func TestUnblock_MissingID(t *testing.T) {
+	dir := tempWorkdir(t)
+	r := runCLI(t, dir, "unblock", `{}`)
+	assertError(t, r, "missing id")
+}
+
+func TestUnblock_InvalidJSON(t *testing.T) {
+	dir := tempWorkdir(t)
+	r := runCLI(t, dir, "unblock", "not-json")
+	assertError(t, r, "invalid json")
+}
+
+func TestUnblock_Help(t *testing.T) {
+	dir := tempWorkdir(t)
+	r := runCLI(t, dir, "unblock", "--help")
+	assertExitZero(t, r, "help")
+	assertContains(t, r.combined, "unblock", "help output")
+}
+
+func TestUnblock_NonExistentTask(t *testing.T) {
+	dir := tempWorkdir(t)
+	r := runCLI(t, dir, "unblock", `{"id":"does-not-exist"}`)
+	assertError(t, r, "non-existent task")
+}
+
+func TestUnblock_NonBlockedTask(t *testing.T) {
+	dir := tempWorkdir(t)
+	// Add a task but don't block it
+	addTask(t, dir, `{"id":"unblk-3","title":"Not Blocked","milestone":"v1","actor":"tester","description":"desc"}`)
+
+	// Attempt to unblock a non-blocked task
+	r := runCLI(t, dir, "unblock", `{"id":"unblk-3"}`)
+	assertError(t, r, "non-blocked task")
+}
+
+// --------------------------------------------------------------------------
 // List command tests (replaces test-list.sh)
 // --------------------------------------------------------------------------
 

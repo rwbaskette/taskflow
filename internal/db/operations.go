@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// RFC3339Milli is the RFC 3339 timestamp format (ISO 8601).
+// Go's standard library provides this as time.RFC3339.
+// Format: 2026-05-31T17:02:50Z
+const RFC3339Milli = time.RFC3339
+
 // Task represents a task in the database
 type Task struct {
 	ID          string    `json:"id"`
@@ -129,8 +134,8 @@ func (db *DB) CreateTask(t *Task) error {
 		t.Status,
 		t.Actor,
 		string(blockedByJSON),
-		t.Created.Format(time.RFC3339),
-		t.LastUpdated.Format(time.RFC3339),
+		t.Created.Format(RFC3339Milli),
+		t.LastUpdated.Format(RFC3339Milli),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create task: %w", err)
@@ -187,8 +192,8 @@ func (db *DB) CreateTaskTx(tx *sql.Tx, t *Task) error {
 		t.Status,
 		t.Actor,
 		string(blockedByJSON),
-		t.Created.Format(time.RFC3339),
-		t.LastUpdated.Format(time.RFC3339),
+		t.Created.Format(RFC3339Milli),
+		t.LastUpdated.Format(RFC3339Milli),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create task in transaction: %w", err)
@@ -216,7 +221,7 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 	var t Task
 	var createdStr string
 	var lastUpdatedStr string
-	var blockedByStr string
+	var blockedByStr *string
 
 	err := db.conn.QueryRow(query, id).Scan(
 		&t.ID,
@@ -230,8 +235,8 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 		&createdStr,
 		&lastUpdatedStr,
 	)
-	if blockedByStr != "" {
-		json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
+	if blockedByStr != nil && *blockedByStr != "" {
+		json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
 	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -240,12 +245,12 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 		return nil, fmt.Errorf("failed to read task: %w", err)
 	}
 
-	t.Created, err = time.Parse(time.RFC3339, createdStr)
+	t.Created, err = time.Parse(RFC3339Milli, createdStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse created: %w", err)
 	}
 
-	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
+	t.LastUpdated, err = time.Parse(RFC3339Milli, lastUpdatedStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 	}
@@ -273,9 +278,9 @@ func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 	var t Task
 	var createdStr string
 	var lastUpdatedStr string
-	var blockedByStr string
+	var blockedByRaw interface{}
 
-	err := tx.QueryRow(query, id).Scan(
+	err := db.conn.QueryRow(query, id).Scan(
 		&t.ID,
 		&t.Milestone,
 		&t.Sprint,
@@ -283,12 +288,14 @@ func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 		&t.Description,
 		&t.Status,
 		&t.Actor,
-		&blockedByStr,
+		&blockedByRaw,
 		&createdStr,
 		&lastUpdatedStr,
 	)
-	if blockedByStr != "" {
-		json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
+	if blockedByRaw != nil {
+		if s, ok := blockedByRaw.(string); ok && s != "" {
+			json.Unmarshal([]byte(s), &t.BlockedBy)
+		}
 	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -297,12 +304,12 @@ func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 		return nil, fmt.Errorf("failed to read task in transaction: %w", err)
 	}
 
-	t.Created, err = time.Parse(time.RFC3339, createdStr)
+	t.Created, err = time.Parse(RFC3339Milli, createdStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse created in transaction: %w", err)
 	}
 
-	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
+	t.LastUpdated, err = time.Parse(RFC3339Milli, lastUpdatedStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse last_updated in transaction: %w", err)
 	}
@@ -323,7 +330,11 @@ func (db *DB) UpdateTask(t *Task) error {
 	// Always update LastUpdated to current time
 	t.LastUpdated = time.Now().UTC()
 
-	blockedByJSON, _ := json.Marshal(t.BlockedBy)
+	var blockedByParam interface{}
+	if t.BlockedBy != nil {
+		blockedByJSON, _ := json.Marshal(t.BlockedBy)
+		blockedByParam = string(blockedByJSON)
+	}
 
 	query := `
 		UPDATE tasks
@@ -337,8 +348,8 @@ func (db *DB) UpdateTask(t *Task) error {
 		t.Description,
 		t.Status,
 		t.Actor,
-		string(blockedByJSON),
-		t.LastUpdated.Format(time.RFC3339),
+		blockedByParam,
+		t.LastUpdated.Format(RFC3339Milli),
 		t.ID,
 	)
 	if err != nil {
@@ -370,7 +381,11 @@ func (db *DB) UpdateTaskTx(tx *sql.Tx, t *Task) error {
 	// Always update LastUpdated to current time
 	t.LastUpdated = time.Now().UTC()
 
-	blockedByJSON, _ := json.Marshal(t.BlockedBy)
+	var blockedByParam interface{}
+	if t.BlockedBy != nil {
+		blockedByJSON, _ := json.Marshal(t.BlockedBy)
+		blockedByParam = string(blockedByJSON)
+	}
 
 	query := `
 		UPDATE tasks
@@ -384,8 +399,8 @@ func (db *DB) UpdateTaskTx(tx *sql.Tx, t *Task) error {
 		t.Description,
 		t.Status,
 		t.Actor,
-		string(blockedByJSON),
-		t.LastUpdated.Format(time.RFC3339),
+		blockedByParam,
+		t.LastUpdated.Format(RFC3339Milli),
 		t.ID,
 	)
 	if err != nil {
@@ -450,7 +465,7 @@ func (db *DB) SoftDeleteTask(id string) error {
 	var t Task
 	var createdStr string
 	var lastUpdatedStr string
-	var blockedByStr string
+	var blockedByRaw interface{}
 
 	selectQuery := `
 		SELECT id, milestone, sprint, title, description, status, priority, actor, blocked_by, created, last_updated
@@ -458,7 +473,7 @@ func (db *DB) SoftDeleteTask(id string) error {
 	`
 	err = tx.QueryRow(selectQuery, id).Scan(
 		&t.ID, &t.Milestone, &t.Sprint, &t.Title, &t.Description,
-		&t.Status, &t.Priority, &t.Actor, &blockedByStr, &createdStr, &lastUpdatedStr,
+		&t.Status, &t.Priority, &t.Actor, &blockedByRaw, &createdStr, &lastUpdatedStr,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -466,12 +481,14 @@ func (db *DB) SoftDeleteTask(id string) error {
 		}
 		return fmt.Errorf("failed to read task: %w", err)
 	}
-	if blockedByStr != "" {
-		json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
+	if blockedByRaw != nil {
+		if s, ok := blockedByRaw.(string); ok && s != "" {
+			json.Unmarshal([]byte(s), &t.BlockedBy)
+		}
 	}
 
-	t.Created, _ = time.Parse(time.RFC3339, createdStr)
-	t.LastUpdated, _ = time.Parse(time.RFC3339, lastUpdatedStr)
+	t.Created, _ = time.Parse(RFC3339Milli, createdStr)
+	t.LastUpdated, _ = time.Parse(RFC3339Milli, lastUpdatedStr)
 	deletedOn := time.Now().UTC()
 
 	blockedByJSON, _ := json.Marshal(t.BlockedBy)
@@ -483,8 +500,8 @@ func (db *DB) SoftDeleteTask(id string) error {
 	_, err = tx.Exec(insertQuery,
 		t.ID, t.Milestone, t.Sprint, t.Title, t.Description,
 		t.Status, t.Priority, t.Actor, string(blockedByJSON),
-		t.Created.Format(time.RFC3339), t.LastUpdated.Format(time.RFC3339),
-		deletedOn.Format(time.RFC3339),
+		t.Created.Format(RFC3339Milli), t.LastUpdated.Format(RFC3339Milli),
+		deletedOn.Format(RFC3339Milli),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert into deleted_tasks: %w", err)
@@ -530,7 +547,7 @@ func (db *DB) GetTaskByID(id string) (*Task, error) {
 	var t Task
 	var createdStr string
 	var lastUpdatedStr string
-	var blockedByStr string
+	var blockedByStr *string
 
 	err := db.conn.QueryRow(query, id).Scan(
 		&t.ID,
@@ -544,8 +561,8 @@ func (db *DB) GetTaskByID(id string) (*Task, error) {
 		&createdStr,
 		&lastUpdatedStr,
 	)
-	if blockedByStr != "" {
-		json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
+	if blockedByStr != nil && *blockedByStr != "" {
+		json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
 	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -554,12 +571,12 @@ func (db *DB) GetTaskByID(id string) (*Task, error) {
 		return nil, fmt.Errorf("failed to get task: %w", err)
 	}
 
-	t.Created, err = time.Parse(time.RFC3339, createdStr)
+	t.Created, err = time.Parse(RFC3339Milli, createdStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse created: %w", err)
 	}
 
-	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
+	t.LastUpdated, err = time.Parse(RFC3339Milli, lastUpdatedStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 	}
@@ -664,7 +681,7 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 		var t Task
 		var createdStr string
 		var lastUpdatedStr string
-		var blockedByStr string
+		var blockedByStr *string
 
 		err := rows.Scan(
 			&t.ID,
@@ -681,16 +698,16 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
 		}
-		if blockedByStr != "" {
-			json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
+		if blockedByStr != nil && *blockedByStr != "" {
+			json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
 		}
 
-		t.Created, err = time.Parse(time.RFC3339, createdStr)
+		t.Created, err = time.Parse(RFC3339Milli, createdStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse created: %w", err)
 		}
 
-		t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
+		t.LastUpdated, err = time.Parse(RFC3339Milli, lastUpdatedStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 		}
@@ -778,7 +795,7 @@ func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
 		var t Task
 		var createdStr string
 		var lastUpdatedStr string
-		var blockedByStr string
+		var blockedByStr *string
 
 		err := rows.Scan(
 			&t.ID,
@@ -795,16 +812,16 @@ func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
 		}
-		if blockedByStr != "" {
-			json.Unmarshal([]byte(blockedByStr), &t.BlockedBy)
+		if blockedByStr != nil && *blockedByStr != "" {
+			json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
 		}
 
-		t.Created, err = time.Parse(time.RFC3339, createdStr)
+		t.Created, err = time.Parse(RFC3339Milli, createdStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse created: %w", err)
 		}
 
-		t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
+		t.LastUpdated, err = time.Parse(RFC3339Milli, lastUpdatedStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 		}
@@ -885,4 +902,161 @@ func (db *DB) taskExistsTx(tx *sql.Tx, id string) (bool, error) {
 		return false, fmt.Errorf("failed to check task existence in transaction: %w", err)
 	}
 	return exists, nil
+}
+
+// UnblockTask transitions a task from 'blocked' to 'todo' status in a single
+// atomic database operation. The WHERE clause includes a status = 'blocked'
+// guard to prevent unauthorized status transitions. The blocked_by field is
+// set to SQL NULL and the last_updated field is refreshed to the current UTC
+// timestamp. If a new description is provided, it overwrites the existing
+// description; otherwise the description is preserved unchanged.
+//
+// Returns NewTaskNotFoundError if the task does not exist or is not in
+// 'blocked' status (0 rows affected).
+func (db *DB) UnblockTask(id string, newDescription *string, now time.Time) error {
+	if db == nil || db.conn == nil {
+		return ErrNilDB
+	}
+
+	if strings.TrimSpace(id) == "" {
+		return ErrInvalidID
+	}
+
+	// Determine the description value to use.
+	// If newDescription is nil, we use a placeholder that preserves the existing value
+	// via a CASE expression in the UPDATE.
+	var descriptionClause string
+
+	if newDescription != nil && *newDescription != "" {
+		// Overwrite with the new description
+		descriptionClause = "description = ?, "
+	} else {
+		// Preserve the existing description - use a CASE expression
+		// that sets description to itself (no-op) when no new value is provided.
+		// We use a placeholder with a special marker, but since we can't use
+		// raw SQL expressions with parameterized queries, we'll use a different
+		// approach: construct the SQL dynamically.
+		descriptionClause = ""
+	}
+
+	// Build the UPDATE query dynamically based on whether description is being updated.
+	var query string
+	var args []interface{}
+
+	if descriptionClause != "" {
+		query = `
+			UPDATE tasks
+			SET status = 'todo',
+			    blocked_by = NULL,
+			    ` + descriptionClause + `last_updated = ?
+			WHERE id = ? AND status = 'blocked'
+		`
+		args = []interface{}{
+			*newDescription,
+			now.Format(RFC3339Milli),
+			id,
+		}
+	} else {
+		query = `
+			UPDATE tasks
+			SET status = 'todo',
+			    blocked_by = NULL,
+			    last_updated = ?
+			WHERE id = ? AND status = 'blocked'
+		`
+		args = []interface{}{
+			now.Format(RFC3339Milli),
+			id,
+		}
+	}
+
+	result, err := db.conn.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to unblock task: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		// Either the task doesn't exist or it's not in 'blocked' status.
+		// We return TaskNotFoundError for consistency with other operations.
+		return NewTaskNotFoundError(id)
+	}
+
+	return nil
+}
+
+// UnblockTaskTx transitions a task from 'blocked' to 'todo' status within a
+// transaction. This is the transactional variant of UnblockTask.
+//
+// Deprecated: Not used in production code, only in tests.
+func (db *DB) UnblockTaskTx(tx *sql.Tx, id string, newDescription *string, now time.Time) error {
+	if db == nil || db.conn == nil {
+		return ErrNilDB
+	}
+
+	if tx == nil {
+		return errors.New("nil transaction provided")
+	}
+
+	if strings.TrimSpace(id) == "" {
+		return ErrInvalidID
+	}
+
+	// Determine the description value to use.
+	var descriptionClause string
+
+	if newDescription != nil && *newDescription != "" {
+		descriptionClause = "description = ?, "
+	} else {
+		descriptionClause = ""
+	}
+
+	// Build the UPDATE query dynamically based on whether description is being updated.
+	var query string
+	var args []interface{}
+
+	if descriptionClause != "" {
+		query = `
+			UPDATE tasks
+			SET status = 'todo',
+			    blocked_by = NULL,
+			    ` + descriptionClause + `last_updated = ?
+			WHERE id = ? AND status = 'blocked'
+		`
+		args = []interface{}{
+			*newDescription,
+			now.Format(RFC3339Milli),
+			id,
+		}
+	} else {
+		query = `
+			UPDATE tasks
+			SET status = 'todo',
+			    blocked_by = NULL,
+			    last_updated = ?
+			WHERE id = ? AND status = 'blocked'
+		`
+		args = []interface{}{
+			now.Format(RFC3339Milli),
+			id,
+		}
+	}
+
+	result, err := tx.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to unblock task in transaction: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return NewTaskNotFoundError(id)
+	}
+
+	return nil
 }

@@ -150,8 +150,8 @@ func TestGenerateToolWrapperContainsExecuteFunction(t *testing.T) {
 
 	// Check that multiple tools have execute functions
 	count := strings.Count(result, "async execute(args, context)")
-	if count < 7 {
-		t.Errorf("GenerateToolWrapper() should have at least 7 execute functions, found %d", count)
+	if count != 12 {
+		t.Errorf("GenerateToolWrapper() should have exactly 12 execute functions, found %d", count)
 	}
 }
 
@@ -232,6 +232,7 @@ func TestGenerateToolWrapperContainsAllCommands(t *testing.T) {
 		"task_list_status_todo",
 		"task_reset_timedout",
 		"task_start",
+		"task_unblock",
 	}
 
 	for _, cmd := range commandNames {
@@ -335,6 +336,40 @@ func TestGenerateToolWrapperReturnsResult(t *testing.T) {
 	// Verify the result includes return statement
 	if !strings.Contains(result, "return result;") {
 		t.Error("GenerateToolWrapper() should return result from execSync")
+	}
+}
+
+func TestGenerateToolWrapperUnblockCommand(t *testing.T) {
+	opts := DefaultToolWrapperOptions()
+	result, err := GenerateToolWrapper(opts)
+	if err != nil {
+		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+	}
+
+	// Verify task_unblock tool definition exists
+	pattern := "export const task_unblock = tool({"
+	if !strings.Contains(result, pattern) {
+		t.Errorf("GenerateToolWrapper() output missing: %s", pattern)
+	}
+
+	// Verify description includes unblock-specific text
+	if !strings.Contains(result, "Unblock a previously blocked task") {
+		t.Error("GenerateToolWrapper() output missing unblock command description")
+	}
+
+	// Verify the CLI subcommand "unblock" is used
+	if !strings.Contains(result, `cmdArgs.push("unblock")`) {
+		t.Error("GenerateToolWrapper() should use 'unblock' as CLI subcommand")
+	}
+
+	// Verify id argument is present
+	if !strings.Contains(result, "id: args.id") {
+		t.Error("GenerateToolWrapper() should reference args.id in payload")
+	}
+
+	// Verify description argument is present
+	if !strings.Contains(result, "description: args.description") {
+		t.Error("GenerateToolWrapper() should reference args.description in payload")
 	}
 }
 

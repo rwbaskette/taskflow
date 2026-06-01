@@ -84,7 +84,7 @@ const tools = {
   task_add, task_block, task_complete, task_delete,
   task_list_all, task_list_blocked, task_list_done,
   task_list_status_in_progress, task_list_status_todo,
-  task_reset_timedout, task_start,
+  task_reset_timedout, task_start, task_unblock,
 };
 function zodType(schema) { return schema?.def?.type ?? ''; }
 const result = {};
@@ -138,7 +138,7 @@ func TestToolWrapperAllToolsPresent(t *testing.T) {
 		"task_add", "task_block", "task_complete", "task_delete",
 		"task_list_all", "task_list_blocked", "task_list_done",
 		"task_list_status_in_progress", "task_list_status_todo",
-		"task_reset_timedout", "task_start",
+		"task_reset_timedout", "task_start", "task_unblock",
 	}
 	for _, name := range want {
 		if _, ok := shapes[name]; !ok {
@@ -165,6 +165,7 @@ func TestToolWrapperDescriptions(t *testing.T) {
 		{"task_list_status_todo", "List todo tasks"},
 		{"task_reset_timedout", "Reset timed out tasks"},
 		{"task_start", "Start working on a task"},
+		{"task_unblock", "Unblock a previously blocked task"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
@@ -201,6 +202,8 @@ func TestToolWrapperArgTypes(t *testing.T) {
 		{"task_list_all", "offset", "number"},
 		{"task_reset_timedout", "minutes", "number"},
 		{"task_list_all", "all", "boolean"},
+		{"task_unblock", "id", "string"},
+		{"task_unblock", "description", "string"},
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%s.%s", tc.tool, tc.arg), func(t *testing.T) {
@@ -237,6 +240,7 @@ func TestToolWrapperArgCounts(t *testing.T) {
 		{"task_list_status_todo", 4},
 		{"task_reset_timedout", 1},       // minutes
 		{"task_start", 1},                // id
+		{"task_unblock", 2},              // id, description
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
