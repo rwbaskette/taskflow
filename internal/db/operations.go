@@ -280,7 +280,7 @@ func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 	var lastUpdatedStr string
 	var blockedByRaw interface{}
 
-	err := db.conn.QueryRow(query, id).Scan(
+	err := tx.QueryRow(query, id).Scan(
 		&t.ID,
 		&t.Milestone,
 		&t.Sprint,
