@@ -14,6 +14,7 @@ type UpdateTaskInput struct {
 	Milestone   string
 	Status      string
 	Actor       string
+	BlockedBy   []string
 }
 
 // UpdateTaskResult contains the result of updating a task
@@ -24,6 +25,7 @@ type UpdateTaskResult struct {
 	Description string
 	Actor       string
 	Status      string
+	BlockedBy   []string
 	LastUpdated time.Time
 }
 
@@ -48,6 +50,14 @@ func UpdateTask(database *db.DB, input *UpdateTaskInput) (*UpdateTaskResult, err
 		return nil, err
 	}
 
+	// Validate blocked_by dependencies if being updated
+	// Only validate if BlockedBy is explicitly provided (not nil)
+	if input.BlockedBy != nil {
+		if err := ValidateBlockedByForUpdate(database, input.BlockedBy, input.ID); err != nil {
+			return nil, err
+		}
+	}
+
 	// Build updated task with partial update support
 	// Only update fields that are provided (non-empty)
 	updatedTask := &db.Task{
@@ -57,6 +67,7 @@ func UpdateTask(database *db.DB, input *UpdateTaskInput) (*UpdateTaskResult, err
 		Description: existingTask.Description,
 		Status:      existingTask.Status,
 		Actor:       existingTask.Actor,
+		BlockedBy:   existingTask.BlockedBy,
 		LastUpdated: time.Now().UTC(),
 	}
 
@@ -81,6 +92,11 @@ func UpdateTask(database *db.DB, input *UpdateTaskInput) (*UpdateTaskResult, err
 		updatedTask.Actor = input.Actor
 	}
 
+	// Update BlockedBy if explicitly provided
+	if input.BlockedBy != nil {
+		updatedTask.BlockedBy = input.BlockedBy
+	}
+
 	// Update in database
 	if err := database.UpdateTask(updatedTask); err != nil {
 		return nil, err
@@ -94,6 +110,7 @@ func UpdateTask(database *db.DB, input *UpdateTaskInput) (*UpdateTaskResult, err
 		Description: updatedTask.Description,
 		Actor:       updatedTask.Actor,
 		Status:      updatedTask.Status,
+		BlockedBy:   updatedTask.BlockedBy,
 		LastUpdated: updatedTask.LastUpdated,
 	}, nil
 }

@@ -150,8 +150,8 @@ func TestGenerateToolWrapperContainsExecuteFunction(t *testing.T) {
 
 	// Check that multiple tools have execute functions
 	count := strings.Count(result, "async execute(args, context)")
-	if count != 12 {
-		t.Errorf("GenerateToolWrapper() should have exactly 12 execute functions, found %d", count)
+	if count != 13 {
+		t.Errorf("GenerateToolWrapper() should have exactly 13 execute functions, found %d", count)
 	}
 }
 
@@ -233,6 +233,7 @@ func TestGenerateToolWrapperContainsAllCommands(t *testing.T) {
 		"task_reset_timedout",
 		"task_start",
 		"task_unblock",
+		"task_wait",
 	}
 
 	for _, cmd := range commandNames {

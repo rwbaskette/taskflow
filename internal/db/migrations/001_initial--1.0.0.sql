@@ -1,4 +1,20 @@
--- Tasks table schema
+-- Migration: Initial Schema (version 1.0.0)
+-- ID: 001_initial
+-- Date: 2026-06-06
+-- Status: Initial schema for taskflow database
+--
+-- This migration creates the initial schema including:
+-- - tasks table: main task storage
+-- - deleted_tasks table: soft-deleted tasks
+-- - schema_versions table: migration tracking
+--
+-- The migration is idempotent - running it multiple times is safe.
+-- Each existing table uses "IF NOT EXISTS" clause.
+--
+-- Note: This migration does NOT automatically record itself in schema_versions.
+-- The calling code (migrate.go) is responsible for recording the version.
+
+-- Tasks table: main task storage
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     milestone TEXT,
@@ -13,19 +29,13 @@ CREATE TABLE IF NOT EXISTS tasks (
     last_updated TEXT NOT NULL
 );
 
--- Index for faster milestone lookups
+-- Indexes for tasks table
 CREATE INDEX IF NOT EXISTS idx_tasks_milestone ON tasks(milestone);
-
--- Index for faster status lookups
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-
--- Index for faster sprint lookups
 CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint);
-
--- Index for faster priority lookups
 CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
 
--- Soft-deleted tasks table
+-- Deleted tasks table: soft-deleted tasks
 CREATE TABLE IF NOT EXISTS deleted_tasks (
     id TEXT PRIMARY KEY,
     milestone TEXT,
@@ -41,10 +51,10 @@ CREATE TABLE IF NOT EXISTS deleted_tasks (
     deleted_on TEXT NOT NULL
 );
 
--- Index for faster deleted_on lookups
+-- Index for deleted_tasks table
 CREATE INDEX IF NOT EXISTS idx_deleted_tasks_deleted_on ON deleted_tasks(deleted_on);
 
--- Schema versions table for tracking applied migrations
+-- Schema versions table: migration tracking
 CREATE TABLE IF NOT EXISTS schema_versions (
     id INTEGER PRIMARY KEY,
     version TEXT NOT NULL UNIQUE,
@@ -52,5 +62,8 @@ CREATE TABLE IF NOT EXISTS schema_versions (
     description TEXT
 );
 
--- Index for faster version lookups
+-- Index for schema_versions table
 CREATE INDEX IF NOT EXISTS idx_schema_versions_version ON schema_versions(version);
+
+-- Return success indicator
+SELECT '1.0.0 schema migration complete' AS status;

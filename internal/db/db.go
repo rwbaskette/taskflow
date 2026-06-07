@@ -80,8 +80,56 @@ func (db *DB) Path() string {
 	return db.path
 }
 
-// migrate runs schema migrations, creating tables if they don't exist
+// migrate runs schema migrations, ensuring the database is at the latest version.
+// It uses the migration framework to apply any pending migrations.
 func (db *DB) migrate() error {
+	// First, apply the initial schema to ensure base tables exist
+	// This handles both new databases and legacy databases without schema_versions
+	if err := db.applyInitialSchema(); err != nil {
+		return fmt.Errorf("failed to apply initial schema: %w", err)
+	}
+
+	// Now check if we need to run any pending migrations
+	currentVersion, err := db.GetSchemaVersion()
+	if err != nil {
+		return fmt.Errorf("failed to get current schema version: %w", err)
+	}
+
+	// If already at latest version, nothing to do
+	if currentVersion == LatestVersion {
+		return nil
+	}
+
+	// If pre-migration database, run migration to get to latest
+	if currentVersion == "pre-migration" || CompareVersions(currentVersion, LatestVersion) < 0 {
+		// Get pending migrations
+		pending, err := db.GetPendingMigrations()
+		if err != nil {
+			return fmt.Errorf("failed to get pending migrations: %w", err)
+		}
+
+		// Apply each pending migration
+		for _, version := range pending {
+			// Check major version mismatch (only for non-pre-migration databases)
+			// Also allow migration from "0.0.0" (no version = fresh install)
+			if currentVersion != "pre-migration" && currentVersion != "0.0.0" && MajorVersion(currentVersion) != MajorVersion(version) {
+				// Skip major version upgrades on auto-migrate (caller should use --force)
+				return fmt.Errorf("cannot auto-migrate across major versions (current: %s, target: %s): use --force flag to override", currentVersion, version)
+			}
+
+			if err := db.RunMigration(version); err != nil {
+				return fmt.Errorf("failed to apply migration %s: %w", version, err)
+			}
+			currentVersion = version
+		}
+	}
+
+	return nil
+}
+
+// applyInitialSchema creates the base schema if it doesn't exist.
+// This is called before the migration system to ensure basic tables are present.
+func (db *DB) applyInitialSchema() error {
 	// Try multiple locations for the schema file
 	// Priority: PROJECT_ROOT env > db.path derivation > cwd
 
@@ -127,7 +175,7 @@ func (db *DB) migrate() error {
 	// Execute the schema SQL
 	_, err := db.conn.Exec(schema)
 	if err != nil {
-		return fmt.Errorf("failed to execute schema: %w", err)
+		return fmt.Errorf("failed to execute initial schema: %w", err)
 	}
 
 	return nil

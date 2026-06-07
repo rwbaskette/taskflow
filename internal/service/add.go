@@ -13,6 +13,7 @@ type AddTaskInput struct {
 	Title       string
 	Description string
 	Actor       string
+	BlockedBy   []string
 }
 
 // AddTaskResult contains the result of adding a task
@@ -22,6 +23,7 @@ type AddTaskResult struct {
 	Title       string
 	Description string
 	Actor       string
+	BlockedBy   []string
 	Status      string
 	LastUpdated time.Time
 }
@@ -36,6 +38,11 @@ func AddTask(database *db.DB, input *AddTaskInput) (*AddTaskResult, error) {
 		return nil, ErrNilInput
 	}
 
+	// Validate blocked_by dependencies before creating the task
+	if err := ValidateBlockedBy(database, input.BlockedBy, input.ID); err != nil {
+		return nil, err
+	}
+
 	// Create the task
 	task := &db.Task{
 		ID:          input.ID,
@@ -44,6 +51,7 @@ func AddTask(database *db.DB, input *AddTaskInput) (*AddTaskResult, error) {
 		Description: input.Description,
 		Status:      "todo",
 		Actor:       input.Actor,
+		BlockedBy:   input.BlockedBy,
 		LastUpdated: time.Now().UTC(),
 	}
 
@@ -59,6 +67,7 @@ func AddTask(database *db.DB, input *AddTaskInput) (*AddTaskResult, error) {
 		Title:       task.Title,
 		Description: task.Description,
 		Actor:       task.Actor,
+		BlockedBy:   task.BlockedBy,
 		Status:      task.Status,
 		LastUpdated: task.LastUpdated,
 	}, nil

@@ -204,6 +204,14 @@ func getToolCommandsWithEnums() []ToolCommand {
 				{Name: "description", Type: "string", Description: "New description to overwrite the existing description", Required: false},
 			},
 		},
+		{
+			Name:        "wait",
+			Description: "Wait for one or more tasks to complete. Blocks until all specified tasks reach 'done' status or the timeout is reached.",
+			Args: []ToolArg{
+				{Name: "task_ids", Type: "string_array", Description: "List of task IDs to wait on (required)", Required: true},
+				{Name: "timeout", Type: "number", Description: "Timeout in milliseconds (0 = wait forever)", Required: false},
+			},
+		},
 	}
 }
 
@@ -217,6 +225,8 @@ var toolWrapperTmpl = template.Must(template.New("tool-wrapper").Funcs(template.
 			return fmt.Sprintf("tool.schema.number().describe(%q)", arg.Description)
 		case "boolean":
 			return fmt.Sprintf("tool.schema.boolean().describe(%q)", arg.Description)
+		case "string_array":
+			return fmt.Sprintf("tool.schema.array(tool.schema.string()).describe(%q)", arg.Description)
 		default:
 			return fmt.Sprintf("tool.schema.string().describe(%q)", arg.Description)
 		}
