@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/rwbaskette/taskflow/internal/db"
+	"github.com/rwbaskette/taskflow/internal/timeutil"
 )
 
 // UpdateTaskInput contains the input parameters for updating a task
@@ -68,7 +69,7 @@ func UpdateTask(database *db.DB, input *UpdateTaskInput) (*UpdateTaskResult, err
 		Status:      existingTask.Status,
 		Actor:       existingTask.Actor,
 		BlockedBy:   existingTask.BlockedBy,
-		LastUpdated: time.Now().UTC(),
+		LastUpdated: timeutil.Now(),
 	}
 
 	// Apply partial updates only for provided fields

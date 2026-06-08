@@ -7,12 +7,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
-)
 
-// RFC3339Milli is the RFC 3339 timestamp format (ISO 8601).
-// Go's standard library provides this as time.RFC3339.
-// Format: 2026-05-31T17:02:50Z
-const RFC3339Milli = time.RFC3339
+	"github.com/rwbaskette/taskflow/internal/timeutil"
+)
 
 // Task represents a task in the database
 type Task struct {
@@ -115,7 +112,7 @@ func (db *DB) CreateTask(t *Task) error {
 	}
 	// Set LastUpdated to now if not set
 	if t.LastUpdated.IsZero() {
-		t.LastUpdated = time.Now().UTC()
+		t.LastUpdated = timeutil.Now()
 	}
 
 	blockedByJSON, _ := json.Marshal(t.BlockedBy)
@@ -134,8 +131,8 @@ func (db *DB) CreateTask(t *Task) error {
 		t.Status,
 		t.Actor,
 		string(blockedByJSON),
-		t.Created.Format(RFC3339Milli),
-		t.LastUpdated.Format(RFC3339Milli),
+		t.Created.Format(time.RFC3339),
+		t.LastUpdated.Format(time.RFC3339),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create task: %w", err)
@@ -173,7 +170,7 @@ func (db *DB) CreateTaskTx(tx *sql.Tx, t *Task) error {
 	}
 	// Set LastUpdated to now if not set
 	if t.LastUpdated.IsZero() {
-		t.LastUpdated = time.Now().UTC()
+		t.LastUpdated = timeutil.Now()
 	}
 
 	blockedByJSON, _ := json.Marshal(t.BlockedBy)
@@ -192,8 +189,8 @@ func (db *DB) CreateTaskTx(tx *sql.Tx, t *Task) error {
 		t.Status,
 		t.Actor,
 		string(blockedByJSON),
-		t.Created.Format(RFC3339Milli),
-		t.LastUpdated.Format(RFC3339Milli),
+		t.Created.Format(time.RFC3339),
+		t.LastUpdated.Format(time.RFC3339),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create task in transaction: %w", err)
@@ -245,12 +242,12 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 		return nil, fmt.Errorf("failed to read task: %w", err)
 	}
 
-	t.Created, err = time.Parse(RFC3339Milli, createdStr)
+	t.Created, err = time.Parse(time.RFC3339, createdStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse created: %w", err)
 	}
 
-	t.LastUpdated, err = time.Parse(RFC3339Milli, lastUpdatedStr)
+	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 	}
@@ -304,12 +301,12 @@ func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
 		return nil, fmt.Errorf("failed to read task in transaction: %w", err)
 	}
 
-	t.Created, err = time.Parse(RFC3339Milli, createdStr)
+	t.Created, err = time.Parse(time.RFC3339, createdStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse created in transaction: %w", err)
 	}
 
-	t.LastUpdated, err = time.Parse(RFC3339Milli, lastUpdatedStr)
+	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse last_updated in transaction: %w", err)
 	}
@@ -328,7 +325,7 @@ func (db *DB) UpdateTask(t *Task) error {
 	}
 
 	// Always update LastUpdated to current time
-	t.LastUpdated = time.Now().UTC()
+	t.LastUpdated = timeutil.Now()
 
 	var blockedByParam interface{}
 	if t.BlockedBy != nil {
@@ -349,7 +346,7 @@ func (db *DB) UpdateTask(t *Task) error {
 		t.Status,
 		t.Actor,
 		blockedByParam,
-		t.LastUpdated.Format(RFC3339Milli),
+		t.LastUpdated.Format(time.RFC3339),
 		t.ID,
 	)
 	if err != nil {
@@ -379,7 +376,7 @@ func (db *DB) UpdateTaskTx(tx *sql.Tx, t *Task) error {
 	}
 
 	// Always update LastUpdated to current time
-	t.LastUpdated = time.Now().UTC()
+	t.LastUpdated = timeutil.Now()
 
 	var blockedByParam interface{}
 	if t.BlockedBy != nil {
@@ -400,7 +397,7 @@ func (db *DB) UpdateTaskTx(tx *sql.Tx, t *Task) error {
 		t.Status,
 		t.Actor,
 		blockedByParam,
-		t.LastUpdated.Format(RFC3339Milli),
+		t.LastUpdated.Format(time.RFC3339),
 		t.ID,
 	)
 	if err != nil {
@@ -487,9 +484,9 @@ func (db *DB) SoftDeleteTask(id string) error {
 		}
 	}
 
-	t.Created, _ = time.Parse(RFC3339Milli, createdStr)
-	t.LastUpdated, _ = time.Parse(RFC3339Milli, lastUpdatedStr)
-	deletedOn := time.Now().UTC()
+	t.Created, _ = time.Parse(time.RFC3339, createdStr)
+	t.LastUpdated, _ = time.Parse(time.RFC3339, lastUpdatedStr)
+	deletedOn := timeutil.Now()
 
 	blockedByJSON, _ := json.Marshal(t.BlockedBy)
 
@@ -500,8 +497,8 @@ func (db *DB) SoftDeleteTask(id string) error {
 	_, err = tx.Exec(insertQuery,
 		t.ID, t.Milestone, t.Sprint, t.Title, t.Description,
 		t.Status, t.Priority, t.Actor, string(blockedByJSON),
-		t.Created.Format(RFC3339Milli), t.LastUpdated.Format(RFC3339Milli),
-		deletedOn.Format(RFC3339Milli),
+		t.Created.Format(time.RFC3339), t.LastUpdated.Format(time.RFC3339),
+		deletedOn.Format(time.RFC3339),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert into deleted_tasks: %w", err)
@@ -571,12 +568,12 @@ func (db *DB) GetTaskByID(id string) (*Task, error) {
 		return nil, fmt.Errorf("failed to get task: %w", err)
 	}
 
-	t.Created, err = time.Parse(RFC3339Milli, createdStr)
+	t.Created, err = time.Parse(time.RFC3339, createdStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse created: %w", err)
 	}
 
-	t.LastUpdated, err = time.Parse(RFC3339Milli, lastUpdatedStr)
+	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 	}
@@ -702,12 +699,12 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 			json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
 		}
 
-		t.Created, err = time.Parse(RFC3339Milli, createdStr)
+		t.Created, err = time.Parse(time.RFC3339, createdStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse created: %w", err)
 		}
 
-		t.LastUpdated, err = time.Parse(RFC3339Milli, lastUpdatedStr)
+		t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 		}
@@ -816,12 +813,12 @@ func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
 			json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
 		}
 
-		t.Created, err = time.Parse(RFC3339Milli, createdStr)
+		t.Created, err = time.Parse(time.RFC3339, createdStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse created: %w", err)
 		}
 
-		t.LastUpdated, err = time.Parse(RFC3339Milli, lastUpdatedStr)
+		t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 		}
@@ -953,7 +950,7 @@ func (db *DB) UnblockTask(id string, newDescription *string, now time.Time) erro
 		`
 		args = []interface{}{
 			*newDescription,
-			now.Format(RFC3339Milli),
+			now.Format(time.RFC3339),
 			id,
 		}
 	} else {
@@ -965,7 +962,7 @@ func (db *DB) UnblockTask(id string, newDescription *string, now time.Time) erro
 			WHERE id = ? AND status = 'blocked'
 		`
 		args = []interface{}{
-			now.Format(RFC3339Milli),
+			now.Format(time.RFC3339),
 			id,
 		}
 	}
@@ -1028,7 +1025,7 @@ func (db *DB) UnblockTaskTx(tx *sql.Tx, id string, newDescription *string, now t
 		`
 		args = []interface{}{
 			*newDescription,
-			now.Format(RFC3339Milli),
+			now.Format(time.RFC3339),
 			id,
 		}
 	} else {
@@ -1040,7 +1037,7 @@ func (db *DB) UnblockTaskTx(tx *sql.Tx, id string, newDescription *string, now t
 			WHERE id = ? AND status = 'blocked'
 		`
 		args = []interface{}{
-			now.Format(RFC3339Milli),
+			now.Format(time.RFC3339),
 			id,
 		}
 	}
