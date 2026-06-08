@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rwbaskette/taskflow/internal/db"
+	"github.com/rwbaskette/taskflow/internal/timeutil"
 	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
@@ -79,7 +80,7 @@ func UnblockTask(database *db.DB, input UnblockTaskInput) (*UnblockTaskResult, e
 	// Use the database-level unblock method which includes the WHERE
 	// status = 'blocked' guard. This is the authoritative check that
 	// prevents unauthorized status transitions at the database level.
-	now := time.Now().UTC()
+	now := timeutil.Now()
 	if err := database.UnblockTaskTx(tx, input.ID, newDescription, now); err != nil {
 		return nil, err
 	}

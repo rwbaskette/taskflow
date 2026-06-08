@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/rwbaskette/taskflow/internal/timeutil"
 )
 
 // Task represents a task in the database
@@ -110,7 +112,7 @@ func (db *DB) CreateTask(t *Task) error {
 	}
 	// Set LastUpdated to now if not set
 	if t.LastUpdated.IsZero() {
-		t.LastUpdated = time.Now().UTC()
+		t.LastUpdated = timeutil.Now()
 	}
 
 	blockedByJSON, _ := json.Marshal(t.BlockedBy)
@@ -168,7 +170,7 @@ func (db *DB) CreateTaskTx(tx *sql.Tx, t *Task) error {
 	}
 	// Set LastUpdated to now if not set
 	if t.LastUpdated.IsZero() {
-		t.LastUpdated = time.Now().UTC()
+		t.LastUpdated = timeutil.Now()
 	}
 
 	blockedByJSON, _ := json.Marshal(t.BlockedBy)
@@ -323,7 +325,7 @@ func (db *DB) UpdateTask(t *Task) error {
 	}
 
 	// Always update LastUpdated to current time
-	t.LastUpdated = time.Now().UTC()
+	t.LastUpdated = timeutil.Now()
 
 	var blockedByParam interface{}
 	if t.BlockedBy != nil {
@@ -374,7 +376,7 @@ func (db *DB) UpdateTaskTx(tx *sql.Tx, t *Task) error {
 	}
 
 	// Always update LastUpdated to current time
-	t.LastUpdated = time.Now().UTC()
+	t.LastUpdated = timeutil.Now()
 
 	var blockedByParam interface{}
 	if t.BlockedBy != nil {
@@ -484,7 +486,7 @@ func (db *DB) SoftDeleteTask(id string) error {
 
 	t.Created, _ = time.Parse(time.RFC3339, createdStr)
 	t.LastUpdated, _ = time.Parse(time.RFC3339, lastUpdatedStr)
-	deletedOn := time.Now().UTC()
+	deletedOn := timeutil.Now()
 
 	blockedByJSON, _ := json.Marshal(t.BlockedBy)
 
