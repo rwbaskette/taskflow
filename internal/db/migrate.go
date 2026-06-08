@@ -245,7 +245,7 @@ func (db *DB) applyMigration(targetVersion string) error {
 	}
 
 	// Record migration in schema_versions
-	appliedAt := time.Now().UTC().Format(RFC3339Milli)
+	appliedAt := time.Now().UTC().Format(time.RFC3339)
 	desc := fmt.Sprintf("Migration to version %s", targetVersion)
 	_, err = tx.Exec(
 		"INSERT INTO schema_versions (version, applied_at, description) VALUES (?, ?, ?)",
