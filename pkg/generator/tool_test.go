@@ -363,14 +363,14 @@ func TestGenerateToolWrapperUnblockCommand(t *testing.T) {
 		t.Error("GenerateToolWrapper() should use 'unblock' as CLI subcommand")
 	}
 
-	// Verify id argument is present
-	if !strings.Contains(result, "id: args.id") {
-		t.Error("GenerateToolWrapper() should reference args.id in payload")
+	// Verify id argument is conditionally added to payload
+	if !strings.Contains(result, "if (args.id) payload.id = args.id;") {
+		t.Error("GenerateToolWrapper() should conditionally add args.id to payload")
 	}
 
-	// Verify description argument is present
-	if !strings.Contains(result, "description: args.description") {
-		t.Error("GenerateToolWrapper() should reference args.description in payload")
+	// Verify description argument is conditionally added to payload
+	if !strings.Contains(result, "if (args.description) payload.description = args.description;") {
+		t.Error("GenerateToolWrapper() should conditionally add args.description to payload")
 	}
 }
 

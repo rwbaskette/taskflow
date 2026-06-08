@@ -265,14 +265,13 @@ export const task_{{$cmd.Name}} = tool({
   async execute(args, context) {
     const cmdArgs = [];
     cmdArgs.push("{{cliSub $cmd}}");
-    const payload = {
+    const payload = {};
 {{- range $cmd.Args}}
-      {{.Name}}: args.{{.Name}},
+    if (args.{{.Name}}) payload.{{.Name}} = args.{{.Name}};
 {{- end}}
 {{- if $cmd.FixedStatus}}
-      status: "{{$cmd.FixedStatus}}",
+    payload.status = "{{$cmd.FixedStatus}}";
 {{- end}}
-    };
     cmdArgs.push(JSON.stringify(payload));
 
     const result = execFileSync(` + "`" + `{{$bin}}` + "`" + `, cmdArgs, {
