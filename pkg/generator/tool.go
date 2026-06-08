@@ -195,6 +195,15 @@ func getToolCommandsWithEnums() []ToolCommand {
 				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
 			},
 		},
+		{
+			Name:          "unblock",
+			CLISubcommand: "unblock",
+			Description:   "Unblock a previously blocked task, transitioning it from blocked back to todo status. Optionally update the description.",
+			Args: []ToolArg{
+				{Name: "id", Type: "string", Description: "The unique identifier of the task to unblock", Required: true},
+				{Name: "description", Type: "string", Description: "New description to overwrite the existing description", Required: false},
+			},
+		},
 	}
 }
 

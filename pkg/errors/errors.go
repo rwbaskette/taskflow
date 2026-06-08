@@ -2,6 +2,7 @@
 package errors
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -30,10 +31,11 @@ const (
 	ErrPermissionDenied ErrorCode = "PERMISSION_DENIED"
 
 	// System errors
-	ErrDatabaseError ErrorCode = "DATABASE_ERROR"
-	ErrFileNotFound  ErrorCode = "FILE_NOT_FOUND"
-	ErrConfiguration ErrorCode = "CONFIGURATION_ERROR"
-	ErrUnexpected    ErrorCode = "UNEXPECTED_ERROR"
+	ErrDatabaseError           ErrorCode = "DATABASE_ERROR"
+	ErrFileNotFound            ErrorCode = "FILE_NOT_FOUND"
+	ErrConfiguration           ErrorCode = "CONFIGURATION_ERROR"
+	ErrUnexpected              ErrorCode = "UNEXPECTED_ERROR"
+	ErrInvalidStatusTransition ErrorCode = "INVALID_STATUS_TRANSITION"
 )
 
 // CLIError represents a structured CLI error with context.
@@ -104,9 +106,24 @@ func MissingArgumentError(argName, usage string) *CLIError {
 func ResourceNotFoundError(resourceType, resourceID string) *CLIError {
 	return &CLIError{
 		Code:       ErrResourceNotFound,
-		Message:    fmt.Sprintf("%s not found: %s", resourceType, resourceID),
+		Message:    fmt.Sprintf("No %s found with id '%s'", resourceType, resourceID),
 		Details:    resourceID,
 		Suggestion: "Use 'task list' to see available tasks",
+	}
+}
+
+// InvalidStatusTransitionError creates an error for invalid task status transitions.
+// The Details field stores the task context as a JSON object for proper JSON output.
+func InvalidStatusTransitionError(taskID, currentStatus string) *CLIError {
+	taskDetails, _ := json.Marshal(map[string]interface{}{
+		"id":             taskID,
+		"current_status": currentStatus,
+	})
+	return &CLIError{
+		Code:       ErrInvalidStatusTransition,
+		Message:    fmt.Sprintf("Task %s is in '%s' status and cannot be unblocked. Only tasks in 'blocked' status can be unblocked.", taskID, currentStatus),
+		Details:    string(taskDetails),
+		Suggestion: "Use 'task list --status blocked' to find blocked tasks",
 	}
 }
 
@@ -119,7 +136,7 @@ func InvalidArgumentCountError(expected, actual int, command string) *CLIError {
 	}
 }
 
-// PrintError prints a formatted error message to stderr.
+// PrintError prints a formatted error message to stderr (human-readable).
 func PrintError(err error) {
 	if err == nil {
 		return
@@ -152,21 +169,118 @@ func PrintError(err error) {
 	fmt.Fprintf(os.Stderr, "  Code: %s\n\n", cliErr.Code)
 }
 
-// HandleError handles an error and exits if it's fatal.
+// FormatCLIErrorAsJSON formats a CLIError into a JSON response matching the
+// spec-defined error response structures for task_unblock. It outputs the JSON
+// to stderr and exits with code 1.
+func FormatCLIErrorAsJSON(cliErr *CLIError) {
+	var body map[string]interface{}
+
+	switch cliErr.Code {
+	case ErrResourceNotFound:
+		// RESOURCE_NOT_FOUND: {"status":"error","error_code":"RESOURCE_NOT_FOUND","message":"..."}
+		body = map[string]interface{}{
+			"status":     "error",
+			"error_code": string(cliErr.Code),
+			"message":    cliErr.Message,
+		}
+
+	case ErrInvalidStatusTransition:
+		// INVALID_STATUS_TRANSITION: {"status":"error","error_code":"INVALID_STATUS_TRANSITION","message":"...","task":{"id":"...","current_status":"..."}}
+		task := map[string]interface{}{
+			"id":             cliErr.Details,
+			"current_status": cliErr.Details,
+		}
+		// Parse the task details from the Details field
+		var taskDetails map[string]interface{}
+		if err := json.Unmarshal([]byte(cliErr.Details), &taskDetails); err == nil {
+			if id, ok := taskDetails["id"]; ok {
+				task["id"] = id
+			}
+			if status, ok := taskDetails["current_status"]; ok {
+				task["current_status"] = status
+			}
+		}
+		body = map[string]interface{}{
+			"status":     "error",
+			"error_code": string(cliErr.Code),
+			"message":    cliErr.Message,
+			"task":       task,
+		}
+
+	case ErrMissingArgument:
+		// MISSING_ARGUMENT: {"status":"error","error_code":"MISSING_ARGUMENT","message":"...","missing_parameters":["id"]}
+		var missingParams []string
+		if err := json.Unmarshal([]byte(cliErr.Details), &missingParams); err == nil {
+			body = map[string]interface{}{
+				"status":             "error",
+				"error_code":         string(cliErr.Code),
+				"message":            cliErr.Message,
+				"missing_parameters": missingParams,
+			}
+		} else {
+			body = map[string]interface{}{
+				"status":     "error",
+				"error_code": string(cliErr.Code),
+				"message":    cliErr.Message,
+			}
+		}
+
+	case ErrInvalidArgument:
+		// INVALID_ARGUMENT: {"status":"error","error_code":"INVALID_ARGUMENT","message":"...","invalid_parameters":{"id":"..."}}
+		var invalidParams map[string]interface{}
+		if err := json.Unmarshal([]byte(cliErr.Details), &invalidParams); err == nil {
+			body = map[string]interface{}{
+				"status":             "error",
+				"error_code":         string(cliErr.Code),
+				"message":            cliErr.Message,
+				"invalid_parameters": invalidParams,
+			}
+		} else {
+			body = map[string]interface{}{
+				"status":     "error",
+				"error_code": string(cliErr.Code),
+				"message":    cliErr.Message,
+			}
+		}
+
+	default:
+		// For any other error, output a generic error JSON
+		body = map[string]interface{}{
+			"status":     "error",
+			"error_code": string(cliErr.Code),
+			"message":    cliErr.Message,
+		}
+	}
+
+	jsonBytes, err := json.Marshal(body)
+	if err != nil {
+		// Fallback to human-readable output if JSON marshaling fails
+		PrintError(cliErr)
+		return
+	}
+
+	fmt.Fprintln(os.Stderr, string(jsonBytes))
+	os.Exit(1)
+}
+
+// HandleError handles an error and exits with a non-zero status.
+// For CLI errors, it outputs a JSON-formatted error response to stderr.
+// For other errors, it outputs a human-readable error message.
 func HandleError(err error) {
 	if err == nil {
 		return
 	}
 
-	PrintError(err)
-
 	if cliErr, ok := err.(*CLIError); ok {
-		if cliErr.Code == ErrUnexpected || cliErr.Code == ErrDatabaseError {
-			os.Exit(1)
+		FormatCLIErrorAsJSON(cliErr)
+	} else {
+		// Non-CLIError: format as unexpected error and output JSON
+		cliErr := &CLIError{
+			Code:    ErrUnexpected,
+			Message: err.Error(),
 		}
+		FormatCLIErrorAsJSON(cliErr)
 	}
-
-	os.Exit(1)
 }
 
 // ValidateID checks if a task ID is valid.
@@ -175,6 +289,42 @@ func ValidateID(id string) error {
 		return ValidationError("task-id", "cannot be empty", "Provide a valid task ID")
 	}
 	return nil
+}
+
+// MissingIDError creates an error for a missing 'id' parameter.
+func MissingIDError() *CLIError {
+	return &CLIError{
+		Code:       ErrMissingArgument,
+		Message:    "The required parameter 'id' is missing. Please provide a valid task identifier.",
+		Details:    `["id"]`,
+		Suggestion: "Provide a valid task ID in the JSON document",
+	}
+}
+
+// EmptyIDError creates an error for an empty 'id' parameter.
+func EmptyIDError() *CLIError {
+	invalidParams, _ := json.Marshal(map[string]interface{}{
+		"id": "",
+	})
+	return &CLIError{
+		Code:       ErrInvalidArgument,
+		Message:    "The 'id' parameter must be a non-empty string.",
+		Details:    string(invalidParams),
+		Suggestion: "Provide a non-empty task ID in the JSON document",
+	}
+}
+
+// NonStringIDError creates an error when the 'id' parameter is not a string type.
+func NonStringIDError(actualValue interface{}) *CLIError {
+	invalidParams, _ := json.Marshal(map[string]interface{}{
+		"id": actualValue,
+	})
+	return &CLIError{
+		Code:       ErrInvalidArgument,
+		Message:    "The 'id' parameter must be a string.",
+		Details:    string(invalidParams),
+		Suggestion: "Provide a string value for the 'id' parameter",
+	}
 }
 
 // ValidateStatus checks if a status value is valid.
@@ -257,3 +407,5 @@ func ValidateFlag(flagName, value string, required bool) error {
 	}
 	return nil
 }
+
+

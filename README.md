@@ -179,6 +179,30 @@ taskflow block -j '{"id":"1","reason":"Waiting for API documentation"}'
 
 ---
 
+### Command: unblock
+
+Unblocks a blocked task, transitioning it from 'blocked' to 'todo' status, with optional description overwrite.
+
+```bash
+taskflow unblock '{"id":"1"}'
+taskflow unblock '{"id":"abc123"}'
+
+# With description update
+taskflow unblock '{"id":"1","description":"API docs now available, proceeding with implementation"}'
+
+# With JSON flag
+taskflow unblock -j '{"id":"1"}'
+```
+
+#### JSON Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Task ID to unblock |
+| `description` | No | New description to overwrite existing description |
+
+---
+
 ### Command: delete
 
 Soft delete a task by moving it to the deleted_tasks table.

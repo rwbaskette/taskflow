@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/rwbaskette/taskflow/internal/db"
+	"github.com/rwbaskette/taskflow/internal/timeutil"
 )
 
 // AddTaskInput contains the input parameters for adding a task
@@ -44,7 +45,7 @@ func AddTask(database *db.DB, input *AddTaskInput) (*AddTaskResult, error) {
 		Description: input.Description,
 		Status:      "todo",
 		Actor:       input.Actor,
-		LastUpdated: time.Now().UTC(),
+		LastUpdated: timeutil.Now(),
 	}
 
 	// Insert into database

@@ -1,10 +1,13 @@
 package integration
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/rwbaskette/taskflow/internal/service"
+	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 // TestAddTaskWorkflow tests the full add task workflow
@@ -1031,5 +1034,29 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 	if len(result.Tasks) != 4 {
 		t.Fatalf("expected 4 tasks, got %d", len(result.Tasks))
+	}
+}
+
+// TestUnblockNonExistentTask tests unblocking a non-existent task returns an error
+func TestUnblockNonExistentTask(t *testing.T) {
+	cfg := setupTestDB(t)
+	defer teardownTestDB(t, cfg)
+
+	// Attempt to unblock a task that does not exist
+	_, err := service.UnblockTask(cfg.DB, service.UnblockTaskInput{ID: "non-existent-task-id"})
+	if err == nil {
+		t.Fatal("expected error for unblocking non-existent task")
+	}
+
+	// Assert that the error is a ResourceNotFoundError with RESOURCE_NOT_FOUND code
+	var cliErr *cliErrors.CLIError
+	if !errors.As(err, &cliErr) {
+		t.Fatalf("expected CLIError for non-existent task, got: %v", err)
+	}
+	if cliErr.Code != cliErrors.ErrResourceNotFound {
+		t.Errorf("expected RESOURCE_NOT_FOUND error code, got: %v", cliErr.Code)
+	}
+	if !strings.Contains(cliErr.Message, "non-existent-task-id") {
+		t.Errorf("expected error message to contain task ID, got: %v", cliErr.Message)
 	}
 }
