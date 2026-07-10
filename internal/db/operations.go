@@ -724,6 +724,53 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 	return tasks, nil
 }
 
+// CountTasks returns the total number of tasks matching the given filter,
+// ignoring Limit and Offset. This is used for pagination metadata so that
+// callers can know the full result-set size without fetching all rows.
+func (db *DB) CountTasks(filter TaskFilter) (int, error) {
+	if db == nil || db.conn == nil {
+		return 0, ErrNilDB
+	}
+
+	// Build the COUNT query using the same WHERE conditions as ListTasks
+	// but without ORDER BY, LIMIT, or OFFSET.
+	query := "SELECT COUNT(*) FROM tasks WHERE 1=1"
+	args := []interface{}{}
+
+	if filter.Milestone != "" {
+		query += " AND milestone = ?"
+		args = append(args, filter.Milestone)
+	}
+
+	if filter.Sprint != "" {
+		query += " AND sprint = ?"
+		args = append(args, filter.Sprint)
+	}
+
+	if filter.Status != "" {
+		query += " AND status = ?"
+		args = append(args, filter.Status)
+	}
+
+	if filter.Actor != "" {
+		query += " AND actor = ?"
+		args = append(args, filter.Actor)
+	}
+
+	if filter.ID != "" {
+		query += " AND id = ?"
+		args = append(args, filter.ID)
+	}
+
+	var count int
+	err := db.conn.QueryRow(query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count tasks: %w", err)
+	}
+
+	return count, nil
+}
+
 // ListTasksTx retrieves tasks with optional filters within a transaction
 // Deprecated: Not used in production code, only in tests
 func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {

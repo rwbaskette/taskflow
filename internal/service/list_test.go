@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -158,6 +159,10 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 		if len(result.Tasks) != 2 {
 			t.Errorf("Expected 2 tasks, got %d", len(result.Tasks))
 		}
+		// Total should reflect ALL matching tasks, not just the page returned
+		if result.Total != 4 {
+			t.Errorf("Expected Total=4 (full count), got %d", result.Total)
+		}
 		if !result.HasMore {
 			t.Error("Expected HasMore=true when more tasks exist")
 		}
@@ -176,6 +181,10 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 		if len(result.Tasks) != 2 {
 			t.Errorf("Expected 2 tasks with offset 2, got %d", len(result.Tasks))
 		}
+		// Total should reflect ALL matching tasks, not just the page returned
+		if result.Total != 4 {
+			t.Errorf("Expected Total=4 (full count), got %d", result.Total)
+		}
 	})
 
 	// Test 8: Nil filter (should work with defaults)
@@ -186,6 +195,135 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 		}
 		if len(result.Tasks) != 4 {
 			t.Errorf("Expected 4 tasks with nil filter, got %d", len(result.Tasks))
+		}
+	})
+}
+
+func TestListTasks_TotalReflectsFullCount(t *testing.T) {
+	// Create a temporary database file for testing
+	tmpFile, err := os.CreateTemp("", "test-db-*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	database, err := db.NewDB(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer database.Close()
+
+	// Insert 10 tasks so we can test pagination scenarios
+	for i := 0; i < 10; i++ {
+		task := db.Task{
+			ID:          fmt.Sprintf("TASK-%03d", i+1),
+			Milestone:   "v1.0",
+			Title:       fmt.Sprintf("Task %d", i+1),
+			Status:      "todo",
+			Actor:       "alice",
+			LastUpdated: time.Now(),
+		}
+		if err := database.CreateTask(&task); err != nil {
+			t.Fatalf("Failed to create task: %v", err)
+		}
+	}
+
+	svc := NewListService(database)
+
+	t.Run("Total with limit smaller than total", func(t *testing.T) {
+		result, err := svc.ListTasks(&ListTaskFilter{Limit: 3})
+		if err != nil {
+			t.Fatalf("ListTasks failed: %v", err)
+		}
+		if len(result.Tasks) != 3 {
+			t.Errorf("Expected 3 tasks in page, got %d", len(result.Tasks))
+		}
+		if result.Total != 10 {
+			t.Errorf("Expected Total=10 (full count), got %d", result.Total)
+		}
+		if !result.HasMore {
+			t.Error("Expected HasMore=true")
+		}
+	})
+
+	t.Run("Total with limit equal to total", func(t *testing.T) {
+		result, err := svc.ListTasks(&ListTaskFilter{Limit: 10})
+		if err != nil {
+			t.Fatalf("ListTasks failed: %v", err)
+		}
+		if len(result.Tasks) != 10 {
+			t.Errorf("Expected 10 tasks in page, got %d", len(result.Tasks))
+		}
+		if result.Total != 10 {
+			t.Errorf("Expected Total=10, got %d", result.Total)
+		}
+		if result.HasMore {
+			t.Error("Expected HasMore=false when all results fit in one page")
+		}
+	})
+
+	t.Run("Total with limit larger than total", func(t *testing.T) {
+		result, err := svc.ListTasks(&ListTaskFilter{Limit: 50})
+		if err != nil {
+			t.Fatalf("ListTasks failed: %v", err)
+		}
+		if len(result.Tasks) != 10 {
+			t.Errorf("Expected 10 tasks in page, got %d", len(result.Tasks))
+		}
+		if result.Total != 10 {
+			t.Errorf("Expected Total=10, got %d", result.Total)
+		}
+		if result.HasMore {
+			t.Error("Expected HasMore=false when limit exceeds total")
+		}
+	})
+
+	t.Run("Total with offset and limit", func(t *testing.T) {
+		result, err := svc.ListTasks(&ListTaskFilter{Limit: 3, Offset: 5})
+		if err != nil {
+			t.Fatalf("ListTasks failed: %v", err)
+		}
+		if len(result.Tasks) != 3 {
+			t.Errorf("Expected 3 tasks in page, got %d", len(result.Tasks))
+		}
+		if result.Total != 10 {
+			t.Errorf("Expected Total=10, got %d", result.Total)
+		}
+		if !result.HasMore {
+			t.Error("Expected HasMore=true (offset 5 + 3 tasks < 10 total)")
+		}
+	})
+
+	t.Run("Total with offset at end of results", func(t *testing.T) {
+		result, err := svc.ListTasks(&ListTaskFilter{Limit: 3, Offset: 9})
+		if err != nil {
+			t.Fatalf("ListTasks failed: %v", err)
+		}
+		if len(result.Tasks) != 1 {
+			t.Errorf("Expected 1 task in page, got %d", len(result.Tasks))
+		}
+		if result.Total != 10 {
+			t.Errorf("Expected Total=10, got %d", result.Total)
+		}
+		if result.HasMore {
+			t.Error("Expected HasMore=false (offset 9 + 1 task = 10 total)")
+		}
+	})
+
+	t.Run("Total with milestone filter and limit", func(t *testing.T) {
+		result, err := svc.ListTasks(&ListTaskFilter{Milestone: "v1.0", Limit: 3})
+		if err != nil {
+			t.Fatalf("ListTasks failed: %v", err)
+		}
+		if len(result.Tasks) != 3 {
+			t.Errorf("Expected 3 tasks in page, got %d", len(result.Tasks))
+		}
+		if result.Total != 10 {
+			t.Errorf("Expected Total=10 (all match milestone v1.0), got %d", result.Total)
+		}
+		if !result.HasMore {
+			t.Error("Expected HasMore=true")
 		}
 	})
 }

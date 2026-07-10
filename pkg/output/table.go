@@ -42,6 +42,10 @@ func (r *TaskTableRenderer) Render(result *service.ListTaskResult) {
 	fmt.Println(string(jsonData))
 }
 
+// RenderTasks renders a slice of tasks as JSON. The total is set to len(tasks)
+// since this helper does not have access to the full filtered count. Callers
+// that need accurate pagination metadata should use Render with a properly
+// constructed ListTaskResult instead.
 func RenderTasks(tasks []service.TaskItem) {
 	renderer := NewTaskTableRenderer()
 	result := &service.ListTaskResult{
