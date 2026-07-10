@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/rwbaskette/taskflow/internal/db"
@@ -98,18 +99,16 @@ func (s *ListService) ListTasks(filter *ListTaskFilter) (*ListTaskResult, error)
 		})
 	}
 
-	// Calculate pagination info
-	hasMore := false
-	total := len(items)
-
-	if filter.Limit > 0 && len(items) == filter.Limit {
-		hasMore = true
+	// Get the true total count of all matching records (ignoring limit/offset)
+	// so that pagination metadata is accurate.
+	total, err := s.GetFilteredCount(filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get total count: %w", err)
 	}
 
-	// If limit is 0, show all, hasMore is false
-	if filter.Limit == 0 {
-		hasMore = false
-	}
+	// Determine whether there are more results beyond the current page.
+	// There are more if the current page doesn't reach the end of the full set.
+	hasMore := filter.Offset+len(items) < total
 
 	return &ListTaskResult{
 		Tasks:   items,
@@ -130,21 +129,16 @@ func (s *ListService) GetFilteredCount(filter *ListTaskFilter) (int, error) {
 		filter = &ListTaskFilter{}
 	}
 
-	// Use a COUNT query to get the total matching tasks
+	// Use a COUNT query to get the total matching tasks without fetching all rows
 	dbFilter := db.TaskFilter{
 		Milestone: filter.Milestone,
 		Status:    filter.Status,
 		Actor:     filter.Actor,
-		Limit:     0, // No limit for count
-		Offset:    0, // No offset for count
+		// Limit and Offset are intentionally omitted — CountTasks ignores them,
+		// but we set them to zero for clarity.
 	}
 
-	tasks, err := s.database.ListTasks(dbFilter)
-	if err != nil {
-		return 0, err
-	}
-
-	return len(tasks), nil
+	return s.database.CountTasks(dbFilter)
 }
 
 // GetTask retrieves a task by ID

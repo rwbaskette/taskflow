@@ -756,6 +756,117 @@ func TestListTasks(t *testing.T) {
 	})
 }
 
+func TestCountTasks(t *testing.T) {
+	db := setupTestDB(t)
+	defer teardownTestDB(t, db)
+
+	// Setup: create multiple tasks
+	tasks := []*Task{
+		{ID: "task-1", Milestone: "m1", Sprint: "s1", Title: "Task 1", Status: "todo", Actor: "user-1"},
+		{ID: "task-2", Milestone: "m1", Sprint: "s1", Title: "Task 2", Status: "in_progress", Actor: "user-1"},
+		{ID: "task-3", Milestone: "m2", Sprint: "s2", Title: "Task 3", Status: "done", Actor: "user-2"},
+		{ID: "task-4", Milestone: "m2", Sprint: "s2", Title: "Task 4", Status: "todo", Actor: "user-2"},
+		{ID: "task-5", Milestone: "m1", Sprint: "s3", Title: "Task 5", Status: "blocked", Actor: "user-1"},
+	}
+
+	for _, task := range tasks {
+		if err := db.CreateTask(task); err != nil {
+			t.Fatalf("CreateTask failed: %v", err)
+		}
+	}
+
+	t.Run("count all tasks", func(t *testing.T) {
+		count, err := db.CountTasks(TaskFilter{})
+		if err != nil {
+			t.Fatalf("CountTasks failed: %v", err)
+		}
+		if count != 5 {
+			t.Errorf("expected count=5, got %d", count)
+		}
+	})
+
+	t.Run("count ignores limit and offset", func(t *testing.T) {
+		// Even with limit=2 and offset=1, count should return the full total
+		count, err := db.CountTasks(TaskFilter{Limit: 2, Offset: 1})
+		if err != nil {
+			t.Fatalf("CountTasks failed: %v", err)
+		}
+		if count != 5 {
+			t.Errorf("expected count=5 (ignoring limit/offset), got %d", count)
+		}
+	})
+
+	t.Run("count with milestone filter", func(t *testing.T) {
+		count, err := db.CountTasks(TaskFilter{Milestone: "m1"})
+		if err != nil {
+			t.Fatalf("CountTasks failed: %v", err)
+		}
+		if count != 3 {
+			t.Errorf("expected count=3 for milestone m1, got %d", count)
+		}
+	})
+
+	t.Run("count with status filter", func(t *testing.T) {
+		count, err := db.CountTasks(TaskFilter{Status: "todo"})
+		if err != nil {
+			t.Fatalf("CountTasks failed: %v", err)
+		}
+		if count != 2 {
+			t.Errorf("expected count=2 for status todo, got %d", count)
+		}
+	})
+
+	t.Run("count with actor filter", func(t *testing.T) {
+		count, err := db.CountTasks(TaskFilter{Actor: "user-1"})
+		if err != nil {
+			t.Fatalf("CountTasks failed: %v", err)
+		}
+		if count != 3 {
+			t.Errorf("expected count=3 for actor user-1, got %d", count)
+		}
+	})
+
+	t.Run("count with sprint filter", func(t *testing.T) {
+		count, err := db.CountTasks(TaskFilter{Sprint: "s1"})
+		if err != nil {
+			t.Fatalf("CountTasks failed: %v", err)
+		}
+		if count != 2 {
+			t.Errorf("expected count=2 for sprint s1, got %d", count)
+		}
+	})
+
+	t.Run("count with id filter", func(t *testing.T) {
+		count, err := db.CountTasks(TaskFilter{ID: "task-3"})
+		if err != nil {
+			t.Fatalf("CountTasks failed: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("expected count=1 for id task-3, got %d", count)
+		}
+	})
+
+	t.Run("count with combined filters", func(t *testing.T) {
+		count, err := db.CountTasks(TaskFilter{Milestone: "m1", Status: "todo", Actor: "user-1"})
+		if err != nil {
+			t.Fatalf("CountTasks failed: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("expected count=1 for combined filters, got %d", count)
+		}
+	})
+
+	t.Run("count with no matching results", func(t *testing.T) {
+		count, err := db.CountTasks(TaskFilter{Milestone: "nonexistent"})
+		if err != nil {
+			t.Fatalf("CountTasks failed: %v", err)
+		}
+		if count != 0 {
+			t.Errorf("expected count=0 for no matches, got %d", count)
+		}
+	})
+}
+
 func TestBeginTx(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(t, db)
