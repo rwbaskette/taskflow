@@ -13,9 +13,9 @@ import (
 var resetJSON string
 
 var resetCmd = &cobra.Command{
-	Use:     "reset-timedout",
-	Short:   "Reset timed out tasks to todo status",
-	Long:    "Find in-progress tasks that have exceeded the specified timeout duration and reset them to todo status.\n\nThis command scans all tasks currently in 'in_progress' status and resets any that have been in that state longer than the specified timeout.",
+	Use:   "reset-timedout",
+	Short: "Reset timed out tasks to todo status",
+	Long:  "Find in-progress tasks that have exceeded the specified timeout duration and reset them to todo status.\n\nThis command scans all tasks currently in 'in_progress' status and resets any that have been in that state longer than the specified timeout.",
 	Example: `  task reset-timedout '{"minutes":30}'
   echo '{"minutes":60}' | task reset-timedout -
   task reset-timedout -`,
@@ -45,7 +45,12 @@ var resetCmd = &cobra.Command{
 			return
 		}
 
-		database, err := db.NewDB(db.DefaultDBPath())
+		path, err := db.DefaultDBPath()
+		if err != nil {
+			printAnchorError(err) // exits 2
+			return
+		}
+		database, err := db.NewDB(path)
 		if err != nil {
 			cliErrors.HandleError(err)
 			return

@@ -13,15 +13,20 @@ import (
 var completeJSON string
 
 var completeCmd = &cobra.Command{
-	Use:     "complete",
-	Short:   "Mark a task as completed",
-	Long:    "Mark a task as completed by providing its ID.\n\nThe completion can be specified as a JSON document via argument or stdin.\nFields: id (required), title, description, status, milestone, actor.",
+	Use:   "complete",
+	Short: "Mark a task as completed",
+	Long:  "Mark a task as completed by providing its ID.\n\nThe completion can be specified as a JSON document via argument or stdin.\nFields: id (required), title, description, status, milestone, actor.",
 	Example: `  task complete '{"id":"1"}'
   echo '{"id":"1","actor":"new-owner"}' | task complete -
   task complete -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		database, err := db.NewDB(db.DefaultDBPath())
+		path, err := db.DefaultDBPath()
+		if err != nil {
+			printAnchorError(err) // exits 2
+			return
+		}
+		database, err := db.NewDB(path)
 		if err != nil {
 			cliErrors.HandleError(err)
 			return

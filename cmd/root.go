@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"errors"
+	"fmt"
 	"os"
 
+	"github.com/rwbaskette/taskflow/internal/anchor"
 	"github.com/spf13/cobra"
 )
 
@@ -37,6 +40,77 @@ func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// pointerReasonText maps an anchor reason to the section 6 pointer-error
+// reason text.
+func pointerReasonText(reason string) string {
+	switch reason {
+	case anchor.ReasonMalformed:
+		return "malformed"
+	case anchor.ReasonDangling:
+		return "dangling (target missing)"
+	case anchor.ReasonWrongType:
+		return "wrong target type"
+	default:
+		return reason
+	}
+}
+
+// renderAnchorError renders the section 6 error contract in plain text (no
+// color, no JSON; agents parse plain text). It returns the full multi-line
+// message including a trailing newline, so `where` can print stdout before
+// the same rendering goes to stderr with exit 2.
+func renderAnchorError(err error) string {
+	var aerr *anchor.AnchorError
+	if !errors.As(err, &aerr) {
+		// Defensive: not an anchor error. Plain text, exit 2 path.
+		return fmt.Sprintf("taskflow: %s\n", err.Error())
+	}
+
+	switch {
+	case anchor.IsNotFound(err):
+		var b []byte
+		b = append(b, "taskflow: no .taskflow anchor found\nsearched:\n"...)
+		for i, dir := range aerr.Chain {
+			if i == len(aerr.Chain)-1 {
+				// The chain from AnchorError ends at the filesystem root;
+				// the printer annotates the stop reason itself (AnchorError
+				// has no StopReason field).
+				b = append(b, fmt.Sprintf("  %s (filesystem root reached, no .taskflow)\n", dir)...)
+			} else {
+				b = append(b, fmt.Sprintf("  %s\n", dir)...)
+			}
+		}
+		b = append(b, "remedy: run `taskflow init` in the project root (--target <path> shares one DB across checkouts)\n"...)
+		b = append(b, "or set TASKFLOW_DIR to override\n"...)
+		return string(b)
+
+	case aerr.Reason == anchor.ReasonMissingDB:
+		// The anchor resolved but the DB file is gone (deleted by hand, or a
+		// pointer to an anchor home whose tasks.db is absent). PointerPath
+		// carries the missing DB path here, set by db.DefaultDBPath.
+		return fmt.Sprintf("taskflow: %s is missing\nremedy: run `taskflow init` to create or repair the database\n", aerr.PointerPath)
+
+	case anchor.IsDanglingPointer(err):
+		b := fmt.Sprintf("taskflow: %s is %s\n", aerr.PointerPath, pointerReasonText(aerr.Reason))
+		b += "remedy: run `taskflow init` to create or repair the database\n"
+		return b
+
+	default:
+		// malformed or wrong-type
+		b := fmt.Sprintf("taskflow: %s is %s\n", aerr.PointerPath, pointerReasonText(aerr.Reason))
+		b += "remedy: fix by hand, or run `taskflow init --force` below it to shadow it\n"
+		return b
+	}
+}
+
+// printAnchorError prints the section 6 error contract to stderr in plain
+// text and exits 2 directly. Anchor errors must never go through
+// cliErrors.HandleError (JSON, exit 1) or PrintError (colored text).
+func printAnchorError(err error) {
+	fmt.Fprint(os.Stderr, renderAnchorError(err))
+	os.Exit(2)
 }
 
 func init() {

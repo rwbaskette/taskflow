@@ -13,9 +13,9 @@ import (
 var deleteJSON string
 
 var deleteCmd = &cobra.Command{
-	Use:     "delete",
-	Short:   "Soft delete a task",
-	Long:    "Soft delete a task by moving it to the deleted_tasks table.\n\nThe task is moved to a deleted_tasks table with a deleted_on timestamp rather than being permanently removed. Use 'task list' to find task IDs.",
+	Use:   "delete",
+	Short: "Soft delete a task",
+	Long:  "Soft delete a task by moving it to the deleted_tasks table.\n\nThe task is moved to a deleted_tasks table with a deleted_on timestamp rather than being permanently removed. Use 'task list' to find task IDs.",
 	Example: `  task delete '{"id":"1"}'
   echo '{"id":"abc123"}' | task delete -
   task delete -`,
@@ -43,7 +43,12 @@ var deleteCmd = &cobra.Command{
 			return
 		}
 
-		database, err := db.NewDB(db.DefaultDBPath())
+		path, err := db.DefaultDBPath()
+		if err != nil {
+			printAnchorError(err) // exits 2
+			return
+		}
+		database, err := db.NewDB(path)
 		if err != nil {
 			cliErrors.HandleError(err)
 			return

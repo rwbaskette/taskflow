@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rwbaskette/taskflow/internal/anchor"
+
 	_ "modernc.org/sqlite"
 
 	_ "embed"
@@ -36,7 +38,7 @@ func NewDB(dbPath string) (*DB, error) {
 	}
 
 	// Open database connection with SQLite
-	conn, err := sql.Open("sqlite", "file:"+absPath+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(10000)&_pragma=time_format(sqlite)")
+	conn, err := sql.Open("sqlite", "file:"+absPath+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=cache_size(10000)&_pragma=time_format(sqlite)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -133,18 +135,60 @@ func (db *DB) migrate() error {
 	return nil
 }
 
-// DefaultDBPath returns the database path based on the TASKFLOW_DIR environment variable.
-// If TASKFLOW_DIR is set and non-empty, returns "$TASKFLOW_DIR/tasks.db" (resolved to absolute path).
-// Otherwise, returns the default ".taskflow/tasks.db".
-func DefaultDBPath() string {
+// DefaultDBPath resolves the database path (taskflow-init-anchor.md sections
+// 3 and 9):
+//
+//  1. TASKFLOW_DIR set and non-empty: abs($TASKFLOW_DIR/tasks.db). The walk is
+//     skipped entirely; env always wins; contract unchanged (the DB is
+//     auto-created there, as before).
+//  2. Otherwise the anchor walk (internal/anchor.Resolve from the
+//     symlink-resolved cwd). A directory anchor or a valid pointer anchor
+//     yields its DBPath. No DB is created here.
+//
+// On failure it returns ("", err). A dangling pointer maps to an *AnchorError
+// with Reason "dangling" and the pointer file path, so runtime commands fail
+// with the section 6 pointer-error contract; it never silently auto-creates a
+// dangling target (design section 2); the *AnchorError is built from the
+// Reason constant, matching the package's own conventions. Not-found,
+// malformed, and wrong-type errors are returned as Resolve produced them.
+//
+// Walk branch only: after a successful Resolve the resolved DBPath is
+// stat-checked. When the DB file is missing (deleted by hand, or a pointer to
+// an existing anchor home whose tasks.db is absent), it returns an
+// *AnchorError with Reason "missing-db" and the DB path instead of the path,
+// so runtime commands never silently auto-create an empty DB over a deleted
+// one (design section 3: "No DB is created. Only taskflow init creates or
+// repairs."). The TASKFLOW_DIR env branch above is exempt by design.
+func DefaultDBPath() (string, error) {
 	if dir := os.Getenv("TASKFLOW_DIR"); dir != "" {
 		absPath, err := filepath.Abs(dir)
 		if err != nil {
-			return filepath.Join(dir, "tasks.db")
+			return filepath.Join(dir, "tasks.db"), nil
 		}
-		return filepath.Join(absPath, "tasks.db")
+		return filepath.Join(absPath, "tasks.db"), nil
 	}
-	return ".taskflow/tasks.db"
+
+	a, aerr := anchor.Resolve("")
+	if aerr != nil {
+		return "", aerr
+	}
+	if a.PointerStatus == anchor.StatusDangling {
+		return "", &anchor.AnchorError{
+			Chain:       a.Chain,
+			PointerPath: filepath.Join(a.AnchorPath, ".taskflow"),
+			Reason:      anchor.ReasonDangling,
+		}
+	}
+	// The anchor resolved; the DB file itself may still be gone. NewDB would
+	// silently auto-create an empty DB here, which section 3 forbids.
+	if _, serr := os.Stat(a.DBPath); serr != nil && os.IsNotExist(serr) {
+		return "", &anchor.AnchorError{
+			Chain:       a.Chain,
+			PointerPath: a.DBPath,
+			Reason:      anchor.ReasonMissingDB,
+		}
+	}
+	return a.DBPath, nil
 }
 
 // DB returns the underlying sql.DB for direct queries if needed

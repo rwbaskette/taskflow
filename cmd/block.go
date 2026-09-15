@@ -14,15 +14,20 @@ import (
 var blockJSON string
 
 var blockCmd = &cobra.Command{
-	Use:     "block",
-	Short:   "Block a task",
-	Long:    "Block a task by providing its ID and a reason.\n\nA blocked task cannot be worked on until it is unblocked.\nUse 'task list' to find task IDs.",
+	Use:   "block",
+	Short: "Block a task",
+	Long:  "Block a task by providing its ID and a reason.\n\nA blocked task cannot be worked on until it is unblocked.\nUse 'task list' to find task IDs.",
 	Example: `  task block '{"id":"1","reason":"Waiting for API documentation"}'
   echo '{"id":"abc123","reason":"Dependency not available"}' | task block -
   task block -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		database, err := db.NewDB(db.DefaultDBPath())
+		path, err := db.DefaultDBPath()
+		if err != nil {
+			printAnchorError(err) // exits 2
+			return
+		}
+		database, err := db.NewDB(path)
 		if err != nil {
 			cliErrors.HandleError(err)
 			return

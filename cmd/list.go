@@ -16,9 +16,9 @@ import (
 var listJSON string
 
 var listCmd = &cobra.Command{
-	Use:     "list",
-	Short:   "List all tasks",
-	Long:    "List all tasks with optional filters.\n\nYou can filter by milestone, status, or actor to find specific tasks. Use --all to include completed tasks. Use --format to choose output format (table, markdown, or xml).",
+	Use:   "list",
+	Short: "List all tasks",
+	Long:  "List all tasks with optional filters.\n\nYou can filter by milestone, status, or actor to find specific tasks. Use --all to include completed tasks. Use --format to choose output format (table, markdown, or xml).",
 	Example: `  task list '{}'
   task list '{"milestone":"sprint-1"}'
   task list '{"status":"todo","actor":"john"}'
@@ -130,7 +130,12 @@ var listCmd = &cobra.Command{
 			}
 		}
 
-		database, err := db.NewDB(db.DefaultDBPath())
+		path, err := db.DefaultDBPath()
+		if err != nil {
+			printAnchorError(err) // exits 2
+			return
+		}
+		database, err := db.NewDB(path)
 		if err != nil {
 			cliErrors.HandleError(err)
 			return

@@ -13,15 +13,20 @@ import (
 var addJSON string
 
 var addCmd = &cobra.Command{
-	Use:     "add",
-	Short:   "Add a new task",
-	Long:    "Add a new task to the task list.\n\nThe task can be specified as a JSON document via argument or stdin.\nFields: id, milestone, title, description, actor (all fields except description are required).",
+	Use:   "add",
+	Short: "Add a new task",
+	Long:  "Add a new task to the task list.\n\nThe task can be specified as a JSON document via argument or stdin.\nFields: id, milestone, title, description, actor (all fields except description are required).",
 	Example: `  task add '{"id":"1","title":"Implement login","milestone":"v1","description":"Add login"}'
   echo '{"id":"2","title":"Fix bug","milestone":"v1","description":"Fix memory leak"}' | task add -
   task add -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		database, err := db.NewDB(db.DefaultDBPath())
+		path, err := db.DefaultDBPath()
+		if err != nil {
+			printAnchorError(err) // exits 2
+			return
+		}
+		database, err := db.NewDB(path)
 		if err != nil {
 			cliErrors.HandleError(err)
 			return

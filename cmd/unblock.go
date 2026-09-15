@@ -14,15 +14,20 @@ import (
 var unblockJSON string
 
 var unblockCmd = &cobra.Command{
-	Use:     "unblock",
-	Short:   "Unblock a previously blocked task",
-	Long:    "Unblock a task that was previously blocked, transitioning it from 'blocked' back to 'todo' status.\n\nAn unblocked task becomes actionable again. Optionally update the description during unblocking.\nUse 'task list --status blocked' to find blocked task IDs.",
+	Use:   "unblock",
+	Short: "Unblock a previously blocked task",
+	Long:  "Unblock a task that was previously blocked, transitioning it from 'blocked' back to 'todo' status.\n\nAn unblocked task becomes actionable again. Optionally update the description during unblocking.\nUse 'task list --status blocked' to find blocked task IDs.",
 	Example: `  task unblock '{"id":"task-42"}'
   task unblock -j '{"id":"task-42","description":"Dependency resolved, ready to work"}'
   echo '{"id":"abc123"}' | task unblock -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		database, err := db.NewDB(db.DefaultDBPath())
+		path, err := db.DefaultDBPath()
+		if err != nil {
+			printAnchorError(err) // exits 2
+			return
+		}
+		database, err := db.NewDB(path)
 		if err != nil {
 			cliErrors.HandleError(err)
 			return
