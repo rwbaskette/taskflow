@@ -1,8 +1,11 @@
 package service
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 )
 
 func TestParseJSONFromArg_ValidJSON(t *testing.T) {
@@ -42,52 +45,14 @@ func TestParseJSONFromArg_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestGetStringField_Exists(t *testing.T) {
-	doc := map[string]interface{}{"id": "  1  ", "title": "Test"}
-	id, ok := GetStringField(doc, "id")
-	if !ok {
-		t.Error("expected ok to be true")
-	}
-	if id != "1" {
-		t.Errorf("expected trimmed id '1', got %q", id)
-	}
-}
-
-func TestGetStringField_NotExists(t *testing.T) {
-	doc := map[string]interface{}{"id": "1"}
-	_, ok := GetStringField(doc, "title")
-	if ok {
-		t.Error("expected ok to be false")
-	}
-}
-
-func TestGetStringField_WrongType(t *testing.T) {
-	doc := map[string]interface{}{"id": 123}
-	_, ok := GetStringField(doc, "id")
-	if ok {
-		t.Error("expected ok to be false for non-string type")
-	}
-}
-
-func TestGetStringField_EmptyString(t *testing.T) {
-	doc := map[string]interface{}{"id": "   "}
-	val, ok := GetStringField(doc, "id")
-	if ok {
-		t.Error("expected ok to be false for whitespace-only string")
-	}
-	if val != "" {
-		t.Errorf("expected empty value, got %q", val)
-	}
-}
-
 func TestGetStringFieldTrim_Exists(t *testing.T) {
 	doc := map[string]interface{}{"id": "  1  "}
 	id, ok := GetStringFieldTrim(doc, "id")
 	if !ok {
 		t.Error("expected ok to be true")
 	}
-	if id != "  1  " {
-		t.Errorf("expected original id '  1  ', got %q", id)
+	if id != "1" {
+		t.Errorf("expected trimmed id '1', got %q", id)
 	}
 }
 
@@ -108,12 +73,127 @@ func TestGetStringFieldTrim_WrongType(t *testing.T) {
 }
 
 func TestGetStringFieldTrim_EmptyString(t *testing.T) {
+	doc := map[string]interface{}{"id": "   "}
+	val, ok := GetStringFieldTrim(doc, "id")
+	if ok {
+		t.Error("expected ok to be false for whitespace-only string")
+	}
+	if val != "" {
+		t.Errorf("expected empty value, got %q", val)
+	}
+}
+
+func TestGetStringFieldTrim_PlainValue(t *testing.T) {
 	doc := map[string]interface{}{"id": ""}
 	id, ok := GetStringFieldTrim(doc, "id")
-	if !ok {
-		t.Error("expected ok to be true even for empty string")
+	if ok {
+		t.Error("expected ok to be false for empty string")
 	}
 	if id != "" {
 		t.Errorf("expected empty string, got %q", id)
+	}
+}
+
+func TestGetNumberField(t *testing.T) {
+	doc := map[string]interface{}{"limit": float64(5), "bad": "not-a-number"}
+
+	v, ok := GetNumberField(doc, "limit")
+	if !ok || v != 5 {
+		t.Errorf("expected (5, true), got (%v, %v)", v, ok)
+	}
+
+	if _, ok := GetNumberField(doc, "bad"); ok {
+		t.Error("expected ok to be false for non-number type")
+	}
+
+	if _, ok := GetNumberField(doc, "missing"); ok {
+		t.Error("expected ok to be false for missing field")
+	}
+}
+
+func TestGetBooleanField(t *testing.T) {
+	doc := map[string]interface{}{"all": true, "bad": "not-a-bool"}
+
+	v, ok := GetBooleanField(doc, "all")
+	if !ok || v != true {
+		t.Errorf("expected (true, true), got (%v, %v)", v, ok)
+	}
+
+	if _, ok := GetBooleanField(doc, "bad"); ok {
+		t.Error("expected ok to be false for non-bool type")
+	}
+
+	if _, ok := GetBooleanField(doc, "missing"); ok {
+		t.Error("expected ok to be false for missing field")
+	}
+}
+
+func TestGetIDField_Missing(t *testing.T) {
+	_, err := GetIDField(map[string]interface{}{"title": "Test"})
+	if err == nil {
+		t.Fatal("expected error for missing id, got nil")
+	}
+
+	want := cliErrors.MissingIDError()
+	var got *cliErrors.CLIError
+	if !errors.As(err, &got) {
+		t.Fatalf("expected CLIError, got %v", err)
+	}
+	if got.Code != want.Code {
+		t.Errorf("expected code %v, got %v", want.Code, got.Code)
+	}
+	if got.Message != want.Message {
+		t.Errorf("expected message %q, got %q", want.Message, got.Message)
+	}
+}
+
+func TestGetIDField_NonString(t *testing.T) {
+	_, err := GetIDField(map[string]interface{}{"id": 123})
+	if err == nil {
+		t.Fatal("expected error for non-string id, got nil")
+	}
+
+	want := cliErrors.NonStringIDError(123)
+	var got *cliErrors.CLIError
+	if !errors.As(err, &got) {
+		t.Fatalf("expected CLIError, got %v", err)
+	}
+	if got.Code != want.Code {
+		t.Errorf("expected code %v, got %v", want.Code, got.Code)
+	}
+	if got.Message != want.Message {
+		t.Errorf("expected message %q, got %q", want.Message, got.Message)
+	}
+	if got.InvalidParams["id"] != want.InvalidParams["id"] {
+		t.Errorf("expected invalid params %v, got %v", want.InvalidParams, got.InvalidParams)
+	}
+}
+
+func TestGetIDField_Empty(t *testing.T) {
+	_, err := GetIDField(map[string]interface{}{"id": "   "})
+	if err == nil {
+		t.Fatal("expected error for empty id, got nil")
+	}
+
+	want := cliErrors.EmptyIDError()
+	var got *cliErrors.CLIError
+	if !errors.As(err, &got) {
+		t.Fatalf("expected CLIError, got %v", err)
+	}
+	if got.Code != want.Code {
+		t.Errorf("expected code %v, got %v", want.Code, got.Code)
+	}
+	if got.Message != want.Message {
+		t.Errorf("expected message %q, got %q", want.Message, got.Message)
+	}
+}
+
+func TestGetIDField_OK(t *testing.T) {
+	id, err := GetIDField(map[string]interface{}{"id": "  task-42  "})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "task-42" {
+		t.Errorf("expected trimmed id 'task-42', got %q", id)
 	}
 }

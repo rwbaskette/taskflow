@@ -65,7 +65,7 @@ func TestGenerateToolWrapperSpawnCwdDirectory(t *testing.T) {
 		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
 	}
 
-	wantTools := len(getToolCommandsWithEnums())
+	wantTools := len(getToolCommands())
 
 	// The wrapper is worktree-unaware: no path import, no worktree reads,
 	// no dirname guard. taskflow resolves the anchor by walking up from its
@@ -230,7 +230,6 @@ func TestGenerateToolWrapperContainsArgsWithZodSchema(t *testing.T) {
 	schemaPatterns := []string{
 		"tool.schema.string()",
 		"tool.schema.number()",
-		"tool.schema.boolean()",
 	}
 
 	for _, pattern := range schemaPatterns {
@@ -384,7 +383,6 @@ func TestGenerateToolWrapperSchemaTypes(t *testing.T) {
 	}{
 		{"tool.schema.string()", "string schema"},
 		{"tool.schema.number()", "number schema"},
-		{"tool.schema.boolean()", "boolean schema"},
 	}
 
 	for _, st := range schemaTypes {
@@ -497,5 +495,25 @@ func TestGenerateToolWrapperHandlesDashesInCommandNames(t *testing.T) {
 		// This is the expected behavior - underscores preserved
 	} else if strings.Contains(result, "task_resetTimedout") {
 		t.Error("Command name with underscores should be preserved")
+	}
+}
+
+func TestGenerateToolWrapperDoesNotAdvertiseAllKnob(t *testing.T) {
+	// cmd/list.go no longer reads an "all" JSON field, so the generated
+	// wrapper must not advertise one.
+	opts := DefaultToolWrapperOptions()
+	result, err := GenerateToolWrapper(opts)
+	if err != nil {
+		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+	}
+
+	if strings.Contains(result, "Show all tasks including completed") {
+		t.Error("GenerateToolWrapper() output must not advertise the removed \"all\" list parameter")
+	}
+	if strings.Contains(result, "args.all") {
+		t.Error("GenerateToolWrapper() output must not reference args.all in a payload")
+	}
+	if strings.Contains(result, "all: tool.schema.boolean()") {
+		t.Error("GenerateToolWrapper() output must not define an \"all\" argument")
 	}
 }

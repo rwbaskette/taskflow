@@ -5,9 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rwbaskette/taskflow/internal/db"
 	"github.com/rwbaskette/taskflow/internal/service"
-	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 var resetJSON string
@@ -31,8 +29,7 @@ var resetCmd = &cobra.Command{
 
 		doc, err := service.ParseJSONFromArg(jsonArg)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
 		resetTimeoutMinutes := 30
@@ -41,39 +38,24 @@ var resetCmd = &cobra.Command{
 		}
 
 		if resetTimeoutMinutes <= 0 {
-			cliErrors.HandleError(fmt.Errorf("timeout minutes must be a positive integer"))
-			return
+			fatal(fmt.Errorf("timeout minutes must be a positive integer"))
 		}
 
-		path, err := db.DefaultDBPath()
-		if err != nil {
-			printAnchorError(err) // exits 2
-			return
-		}
-		database, err := db.NewDB(path)
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
+		database := openDB()
 		defer database.Close()
 
-		input := service.ResetTimedOutInput{
-			TimeoutMinutes: resetTimeoutMinutes,
-		}
-
-		result, err := service.ResetTimedOut(database, input)
+		resetTasks, err := service.ResetTimedOut(database, resetTimeoutMinutes)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
-		if len(result.ResetTasks) == 0 {
+		if len(resetTasks) == 0 {
 			fmt.Println("No tasks were timed out.")
 			return
 		}
 
-		fmt.Printf("Reset %d timed out task(s) to todo status:\n", len(result.ResetTasks))
-		for _, task := range result.ResetTasks {
+		fmt.Printf("Reset %d timed out task(s) to todo status:\n", len(resetTasks))
+		for _, task := range resetTasks {
 			fmt.Printf("  - %s: %s (was in progress since %s)\n",
 				task.ID,
 				task.Title,

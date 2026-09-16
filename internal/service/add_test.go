@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,47 +64,6 @@ func TestAddTask_ValidTaskCreation(t *testing.T) {
 	}
 }
 
-func TestAddTask_NilDatabase(t *testing.T) {
-	// Setup: Nil database
-	var database *db.DB = nil
-
-	input := &AddTaskInput{
-		ID:          "task-001",
-		Milestone:   "milestone-1",
-		Title:       "Test Task",
-		Description: "Test description",
-		Actor:       "testuser",
-	}
-
-	// Execute: Call AddTask with nil database
-	result, err := AddTask(database, input)
-
-	// Verify: Should return error for nil database
-	if err != ErrNilDatabase {
-		t.Errorf("expected ErrNilDatabase, got %v", err)
-	}
-	if result != nil {
-		t.Errorf("expected nil result, got %v", result)
-	}
-}
-
-func TestAddTask_NilInput(t *testing.T) {
-	// Setup: Create a test database
-	database := setupTestDB(t)
-	defer teardownTestDB(t, database)
-
-	// Execute: Call AddTask with nil input
-	result, err := AddTask(database, nil)
-
-	// Verify: Should return error for nil input
-	if err != ErrNilInput {
-		t.Errorf("expected ErrNilInput, got %v", err)
-	}
-	if result != nil {
-		t.Errorf("expected nil result, got %v", result)
-	}
-}
-
 func TestAddTask_DuplicateID(t *testing.T) {
 	// Setup: Create a test database
 	database := setupTestDB(t)
@@ -146,7 +106,8 @@ func TestAddTask_DuplicateID(t *testing.T) {
 	}
 
 	// Check if it's the expected TaskAlreadyExists error
-	if !db.IsTaskAlreadyExists(err) {
+	var alreadyExists *db.TaskAlreadyExistsError
+	if !errors.As(err, &alreadyExists) {
 		t.Errorf("expected TaskAlreadyExists error, got %v", err)
 	}
 	if result2 != nil {

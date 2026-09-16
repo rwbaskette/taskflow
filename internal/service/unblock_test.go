@@ -1,7 +1,6 @@
 package service
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,8 +11,6 @@ import (
 func setupTestDBUnblock(t *testing.T) *db.DB {
 	tmpDir := t.TempDir()
 	testDBPath := filepath.Join(tmpDir, "test_unblock_task.db")
-	// Set project root for schema lookup
-	os.Setenv("PROJECT_ROOT", tmpDir)
 	testDB, err := db.NewDB(testDBPath)
 	if err != nil {
 		t.Fatalf("failed to create test db: %v", err)
@@ -69,7 +66,7 @@ func TestUnblockTask_RefreshesLastUpdated(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Step 5: Call the unblock handler with a valid task ID
-	result, err := UnblockTask(database, UnblockTaskInput{ID: "task-unblock-ts"})
+	result, err := UnblockTask(database, "task-unblock-ts", "")
 	if err != nil {
 		t.Fatalf("unexpected error from UnblockTask: %v", err)
 	}
@@ -143,7 +140,7 @@ func TestUnblockTask_StatusTransition(t *testing.T) {
 	}
 
 	// Unblock
-	result, err := UnblockTask(database, UnblockTaskInput{ID: "task-status"})
+	result, err := UnblockTask(database, "task-status", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -169,7 +166,7 @@ func TestUnblockTask_OnlyBlockedTasksCanBeUnblocked(t *testing.T) {
 	}
 
 	// Attempt to unblock a non-blocked task
-	_, err = UnblockTask(database, UnblockTaskInput{ID: "task-not-blocked"})
+	_, err = UnblockTask(database, "task-not-blocked", "")
 	if err == nil {
 		t.Fatal("expected error when unblocking a non-blocked task, got nil")
 	}
@@ -214,7 +211,7 @@ func TestUnblockTask_ClearsBlockedByField(t *testing.T) {
 	t.Logf("blocked_by before unblock: %v", blockResult.BlockedBy)
 
 	// Step 3: Call UnblockTask with the task ID
-	result, err := UnblockTask(database, UnblockTaskInput{ID: "task-clear-blockedby"})
+	result, err := UnblockTask(database, "task-clear-blockedby", "")
 	if err != nil {
 		t.Fatalf("unexpected error from UnblockTask: %v", err)
 	}
@@ -282,10 +279,7 @@ func TestUnblockTask_OverwritesDescription(t *testing.T) {
 	}
 
 	// Step 4: Call UnblockTask with a new description
-	result, err := UnblockTask(database, UnblockTaskInput{
-		ID:          "task-desc-overwrite",
-		Description: newDescription,
-	})
+	result, err := UnblockTask(database, "task-desc-overwrite", newDescription)
 	if err != nil {
 		t.Fatalf("unexpected error from UnblockTask: %v", err)
 	}
@@ -359,7 +353,7 @@ func TestUnblockTask_PreservesDescription(t *testing.T) {
 	}
 
 	// Step 3: Unblock without providing a description parameter
-	result, err := UnblockTask(database, UnblockTaskInput{ID: "task-desc"})
+	result, err := UnblockTask(database, "task-desc", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -423,7 +417,7 @@ func TestUnblockTask_StatusUpdatedFromBlockedToTodo(t *testing.T) {
 	t.Logf("task status before unblock: %s", preUnblockTask.Status)
 
 	// Step 4: Call the unblock handler directly with a valid task ID
-	result, err := UnblockTask(database, UnblockTaskInput{ID: "task-status-update"})
+	result, err := UnblockTask(database, "task-status-update", "")
 	if err != nil {
 		t.Fatalf("unexpected error from UnblockTask: %v", err)
 	}

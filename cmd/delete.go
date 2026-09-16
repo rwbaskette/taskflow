@@ -5,9 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rwbaskette/taskflow/internal/db"
+	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 	"github.com/rwbaskette/taskflow/internal/service"
-	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 var deleteJSON string
@@ -26,43 +25,26 @@ var deleteCmd = &cobra.Command{
 			jsonArg = args[0]
 		}
 		if jsonArg == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-			return
+			fatal(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
 		}
 
 		doc, err := service.ParseJSONFromArg(jsonArg)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
 		id, _ := service.GetStringFieldTrim(doc, "id")
 
 		if err := cliErrors.ValidateID(id); err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
-		path, err := db.DefaultDBPath()
-		if err != nil {
-			printAnchorError(err) // exits 2
-			return
-		}
-		database, err := db.NewDB(path)
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
+		database := openDB()
 		defer database.Close()
 
-		input := &service.DeleteTaskInput{
-			ID: id,
-		}
-
-		result, err := service.DeleteTask(database, input)
+		result, err := service.DeleteTask(database, id)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
 		fmt.Printf("Task deleted successfully:\n")

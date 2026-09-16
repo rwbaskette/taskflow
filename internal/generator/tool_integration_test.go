@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rwbaskette/taskflow/pkg/generator"
+	"github.com/rwbaskette/taskflow/internal/generator"
 )
 
 // sharedDir is created once by TestMain. It contains node_modules after
@@ -201,7 +201,6 @@ func TestToolWrapperArgTypes(t *testing.T) {
 		{"task_list_all", "limit", "number"},
 		{"task_list_all", "offset", "number"},
 		{"task_reset_timedout", "minutes", "number"},
-		{"task_list_all", "all", "boolean"},
 		{"task_unblock", "id", "string"},
 		{"task_unblock", "description", "string"},
 	}
@@ -229,18 +228,18 @@ func TestToolWrapperArgCounts(t *testing.T) {
 		tool      string
 		wantCount int
 	}{
-		{"task_add", 5},                  // id, title, description, milestone, actor
-		{"task_block", 2},                // id, reason
-		{"task_complete", 1},             // id
-		{"task_delete", 1},               // id
-		{"task_list_all", 5},             // milestone, actor, limit, offset, all
-		{"task_list_blocked", 4},         // milestone, actor, limit, offset
-		{"task_list_done", 4},            // milestone, actor, limit, offset
+		{"task_add", 5},          // id, title, description, milestone, actor
+		{"task_block", 2},        // id, reason
+		{"task_complete", 1},     // id
+		{"task_delete", 1},       // id
+		{"task_list_all", 4},     // milestone, actor, limit, offset
+		{"task_list_blocked", 4}, // milestone, actor, limit, offset
+		{"task_list_done", 4},    // milestone, actor, limit, offset
 		{"task_list_status_in_progress", 4},
 		{"task_list_status_todo", 4},
-		{"task_reset_timedout", 1},       // minutes
-		{"task_start", 1},                // id
-		{"task_unblock", 2},              // id, description
+		{"task_reset_timedout", 1}, // minutes
+		{"task_start", 1},          // id
+		{"task_unblock", 2},        // id, description
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {

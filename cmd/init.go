@@ -77,8 +77,7 @@ func runInit(cmd *cobra.Command, args []string) {
 		database, err := db.NewDB(path)
 		if err != nil {
 			// Repair-failure rule: underlying error, exit 2, nothing touched.
-			fmt.Fprintf(os.Stderr, "taskflow: %v\n", err)
-			os.Exit(2)
+			fatal2(err)
 		}
 		dbPath := database.Path()
 		_ = database.Close()
@@ -143,8 +142,7 @@ func runInitExisting(a *anchor.Anchor, start string) {
 		// Repair is additive: recreate a missing tasks.db (also under
 		// --force; --force never deletes a database).
 		if err := ensureDB(a.DBPath); err != nil {
-			fmt.Fprintf(os.Stderr, "taskflow: %v\n", err)
-			os.Exit(2)
+			fatal2(err)
 		}
 
 		fmt.Printf("anchor: %s\n", filepath.Join(a.AnchorPath, ".taskflow"))
@@ -176,8 +174,7 @@ func runInitExisting(a *anchor.Anchor, start string) {
 			// auto-create. ensureDB creates the file only when missing and
 			// is a no-op open otherwise (the schema is idempotent).
 			if err := ensureDB(a.DBPath); err != nil {
-				fmt.Fprintf(os.Stderr, "taskflow: %v\n", err)
-				os.Exit(2)
+				fatal2(err)
 			}
 			if pointerAtCwd {
 				if !initForce {
@@ -190,8 +187,7 @@ func runInitExisting(a *anchor.Anchor, start string) {
 				// replacement restores the pointer bytes on failure
 				// (repair-failure rule, design section 6).
 				if err := replacePointerWithDirAnchor(a.AnchorPath, nil); err != nil {
-					fmt.Fprintf(os.Stderr, "taskflow: %v\n", err)
-					os.Exit(2)
+					fatal2(err)
 				}
 				fmt.Printf("anchor: %s\n", filepath.Join(a.AnchorPath, ".taskflow"))
 				fmt.Printf("db: %s\n", filepath.Join(a.AnchorPath, ".taskflow", "tasks.db"))
@@ -221,8 +217,7 @@ func runInitExisting(a *anchor.Anchor, start string) {
 			// Repair: create the DB at the anchor's DBPath. The pointer and
 			// the anchor stay untouched on failure.
 			if err := ensureDB(a.DBPath); err != nil {
-				fmt.Fprintf(os.Stderr, "taskflow: %v\n", err)
-				os.Exit(2)
+				fatal2(err)
 			}
 			fmt.Printf("pointer anchor at %s\n", filepath.Join(a.AnchorPath, ".taskflow"))
 			fmt.Printf("dangling pointer repaired; db: %s\n", a.DBPath)

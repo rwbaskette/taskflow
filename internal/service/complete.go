@@ -1,8 +1,6 @@
 package service
 
 import (
-	"time"
-
 	"github.com/rwbaskette/taskflow/internal/db"
 )
 
@@ -16,78 +14,46 @@ type CompleteTaskInput struct {
 	Actor       string
 }
 
-// CompleteTaskResult contains the result of completing a task
-type CompleteTaskResult struct {
-	ID          string
-	Milestone   string
-	Title       string
-	Description string
-	Actor       string
-	Status      string
-	LastUpdated time.Time
-}
-
-// CompleteTask marks an existing task as completed
-func CompleteTask(database *db.DB, input *CompleteTaskInput) (*CompleteTaskResult, error) {
-	if database == nil {
-		return nil, ErrNilDatabase
-	}
-
-	// Validate ID is provided
+// CompleteTask marks an existing task as completed. The status defaults to
+// "done" when no override is given; other provided (non-empty) fields are
+// applied as a partial update. The returned task reflects the true stored
+// state, including the refreshed LastUpdated stamped by the database.
+func CompleteTask(database *db.DB, input *CompleteTaskInput) (*db.Task, error) {
 	if input.ID == "" {
 		return nil, ErrInvalidID
 	}
 
-	// Validate task exists
 	existingTask, err := database.ReadTask(input.ID)
 	if err != nil {
 		return nil, err
 	}
 
+	// Apply partial updates only for provided fields
+	if input.Title != "" {
+		existingTask.Title = input.Title
+	}
+
+	if input.Description != "" {
+		existingTask.Description = input.Description
+	}
+
+	if input.Milestone != "" {
+		existingTask.Milestone = input.Milestone
+	}
+
+	if input.Actor != "" {
+		existingTask.Actor = input.Actor
+	}
+
 	// Determine status: use provided status or default to "done"
-	status := input.Status
-	if status == "" {
-		status = "done"
+	existingTask.Status = input.Status
+	if existingTask.Status == "" {
+		existingTask.Status = "done"
 	}
 
-	// Update task with provided fields or existing values
-	updatedTask := &db.Task{
-		ID:          existingTask.ID,
-		Milestone:   input.Milestone,
-		Title:       input.Title,
-		Description: input.Description,
-		Actor:       input.Actor,
-		Status:      status,
-		LastUpdated: time.Now().UTC(),
-	}
-
-	// Use existing values for empty fields
-	if updatedTask.Title == "" {
-		updatedTask.Title = existingTask.Title
-	}
-	if updatedTask.Description == "" {
-		updatedTask.Description = existingTask.Description
-	}
-	if updatedTask.Milestone == "" {
-		updatedTask.Milestone = existingTask.Milestone
-	}
-	if updatedTask.Actor == "" {
-		updatedTask.Actor = existingTask.Actor
-	}
-
-	// Update in database
-	if err := database.UpdateTask(updatedTask); err != nil {
+	if err := database.UpdateTask(existingTask); err != nil {
 		return nil, err
 	}
 
-	// Return the result
-	return &CompleteTaskResult{
-		ID:          updatedTask.ID,
-		Milestone:   updatedTask.Milestone,
-		Title:       updatedTask.Title,
-		Description: updatedTask.Description,
-		Actor:       updatedTask.Actor,
-		Status:      updatedTask.Status,
-		LastUpdated: updatedTask.LastUpdated,
-	}, nil
+	return existingTask, nil
 }

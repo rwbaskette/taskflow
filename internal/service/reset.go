@@ -1,40 +1,14 @@
 package service
 
 import (
-	"time"
-
 	"github.com/rwbaskette/taskflow/internal/db"
 )
 
-// ResetTimedOutInput contains the input parameters for resetting timed out tasks
-type ResetTimedOutInput struct {
-	TimeoutMinutes int
-}
-
-// ResetTimedOutResult contains the result of resetting timed out tasks
-type ResetTimedOutResult struct {
-	ResetTasks []ResetTaskResult
-}
-
-// ResetTaskResult contains the result of resetting a single task
-type ResetTaskResult struct {
-	ID          string
-	Milestone   string
-	Title       string
-	Description string
-	Actor       string
-	Status      string
-	LastUpdated time.Time
-}
-
-// ResetTimedOut finds in-progress tasks exceeding timeout and resets them to todo
-func ResetTimedOut(database *db.DB, input ResetTimedOutInput) (*ResetTimedOutResult, error) {
-	if database == nil {
-		return nil, ErrNilDatabase
-	}
-
-	// Validate timeout minutes
-	if input.TimeoutMinutes <= 0 {
+// ResetTimedOut finds in-progress tasks exceeding the timeout and resets
+// them to todo status. It returns the reset tasks with their true stored
+// state, including the refreshed LastUpdated stamped by the database.
+func ResetTimedOut(database *db.DB, timeoutMinutes int) ([]db.Task, error) {
+	if timeoutMinutes <= 0 {
 		return nil, ErrInvalidTimeout
 	}
 
@@ -49,38 +23,20 @@ func ResetTimedOut(database *db.DB, input ResetTimedOutInput) (*ResetTimedOutRes
 	}
 
 	// Find tasks that have exceeded the timeout
-	timedOutTasks := GetTimedOutTasks(inProgressTasks, input.TimeoutMinutes)
+	timedOutTasks := GetTimedOutTasks(inProgressTasks, timeoutMinutes)
 
 	// Reset each timed out task to todo status
-	var resetTasks []ResetTaskResult
+	resetTasks := make([]db.Task, 0, len(timedOutTasks))
 
 	for _, task := range timedOutTasks {
-		updatedTask := &db.Task{
-			ID:          task.ID,
-			Milestone:   task.Milestone,
-			Title:       task.Title,
-			Description: task.Description,
-			Actor:       task.Actor,
-			Status:      "todo",
-			LastUpdated: time.Now().UTC(),
-		}
+		task.Status = "todo"
 
-		if err := database.UpdateTask(updatedTask); err != nil {
+		if err := database.UpdateTask(&task); err != nil {
 			return nil, err
 		}
 
-		resetTasks = append(resetTasks, ResetTaskResult{
-			ID:          updatedTask.ID,
-			Milestone:   updatedTask.Milestone,
-			Title:       updatedTask.Title,
-			Description: updatedTask.Description,
-			Actor:       updatedTask.Actor,
-			Status:      updatedTask.Status,
-			LastUpdated: updatedTask.LastUpdated,
-		})
+		resetTasks = append(resetTasks, task)
 	}
 
-	return &ResetTimedOutResult{
-		ResetTasks: resetTasks,
-	}, nil
+	return resetTasks, nil
 }

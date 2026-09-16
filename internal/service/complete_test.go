@@ -62,19 +62,6 @@ func TestCompleteTask_ValidTaskCompletion(t *testing.T) {
 	}
 }
 
-func TestCompleteTask_NilDatabase(t *testing.T) {
-	var database *db.DB = nil
-
-	result, err := CompleteTask(database, &CompleteTaskInput{ID: "task-001"})
-
-	if err != ErrNilDatabase {
-		t.Errorf("expected ErrNilDatabase, got %v", err)
-	}
-	if result != nil {
-		t.Errorf("expected nil result, got %v", result)
-	}
-}
-
 func TestCompleteTask_EmptyID(t *testing.T) {
 	database := setupTestDBComplete(t)
 	defer teardownTestDBComplete(t, database)

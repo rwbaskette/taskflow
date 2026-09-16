@@ -1,7 +1,6 @@
 package service
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -71,11 +70,9 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 		}
 	}
 
-	service := NewListService(database)
-
 	// Test 1: List all tasks (no filter)
 	t.Run("ListAllTasks", func(t *testing.T) {
-		result, err := service.ListTasks(&ListTaskFilter{})
+		result, err := ListTasks(database, &ListTaskFilter{})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -89,7 +86,7 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 
 	// Test 2: Filter by milestone
 	t.Run("FilterByMilestone", func(t *testing.T) {
-		result, err := service.ListTasks(&ListTaskFilter{Milestone: "v1.0"})
+		result, err := ListTasks(database, &ListTaskFilter{Milestone: "v1.0"})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -105,7 +102,7 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 
 	// Test 3: Filter by status
 	t.Run("FilterByStatus", func(t *testing.T) {
-		result, err := service.ListTasks(&ListTaskFilter{Status: "done"})
+		result, err := ListTasks(database, &ListTaskFilter{Status: "done"})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -119,7 +116,7 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 
 	// Test 4: Filter by actor
 	t.Run("FilterByActor", func(t *testing.T) {
-		result, err := service.ListTasks(&ListTaskFilter{Actor: "alice"})
+		result, err := ListTasks(database, &ListTaskFilter{Actor: "alice"})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -135,7 +132,7 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 
 	// Test 5: Combined filters
 	t.Run("CombinedFilters", func(t *testing.T) {
-		result, err := service.ListTasks(&ListTaskFilter{
+		result, err := ListTasks(database, &ListTaskFilter{
 			Milestone: "v1.0",
 			Status:    "done",
 		})
@@ -152,7 +149,7 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 
 	// Test 6: Pagination - limit
 	t.Run("PaginationLimit", func(t *testing.T) {
-		result, err := service.ListTasks(&ListTaskFilter{Limit: 2})
+		result, err := ListTasks(database, &ListTaskFilter{Limit: 2})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -173,7 +170,7 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 
 	// Test 7: Pagination - offset
 	t.Run("PaginationOffset", func(t *testing.T) {
-		result, err := service.ListTasks(&ListTaskFilter{Offset: 2})
+		result, err := ListTasks(database, &ListTaskFilter{Offset: 2})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -189,7 +186,7 @@ func TestListTasks_WithValidFilters(t *testing.T) {
 
 	// Test 8: Nil filter (should work with defaults)
 	t.Run("NilFilter", func(t *testing.T) {
-		result, err := service.ListTasks(nil)
+		result, err := ListTasks(database, nil)
 		if err != nil {
 			t.Fatalf("ListTasks with nil filter failed: %v", err)
 		}
@@ -229,10 +226,8 @@ func TestListTasks_TotalReflectsFullCount(t *testing.T) {
 		}
 	}
 
-	svc := NewListService(database)
-
 	t.Run("Total with limit smaller than total", func(t *testing.T) {
-		result, err := svc.ListTasks(&ListTaskFilter{Limit: 3})
+		result, err := ListTasks(database, &ListTaskFilter{Limit: 3})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -248,7 +243,7 @@ func TestListTasks_TotalReflectsFullCount(t *testing.T) {
 	})
 
 	t.Run("Total with limit equal to total", func(t *testing.T) {
-		result, err := svc.ListTasks(&ListTaskFilter{Limit: 10})
+		result, err := ListTasks(database, &ListTaskFilter{Limit: 10})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -264,7 +259,7 @@ func TestListTasks_TotalReflectsFullCount(t *testing.T) {
 	})
 
 	t.Run("Total with limit larger than total", func(t *testing.T) {
-		result, err := svc.ListTasks(&ListTaskFilter{Limit: 50})
+		result, err := ListTasks(database, &ListTaskFilter{Limit: 50})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -280,7 +275,7 @@ func TestListTasks_TotalReflectsFullCount(t *testing.T) {
 	})
 
 	t.Run("Total with offset and limit", func(t *testing.T) {
-		result, err := svc.ListTasks(&ListTaskFilter{Limit: 3, Offset: 5})
+		result, err := ListTasks(database, &ListTaskFilter{Limit: 3, Offset: 5})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -296,7 +291,7 @@ func TestListTasks_TotalReflectsFullCount(t *testing.T) {
 	})
 
 	t.Run("Total with offset at end of results", func(t *testing.T) {
-		result, err := svc.ListTasks(&ListTaskFilter{Limit: 3, Offset: 9})
+		result, err := ListTasks(database, &ListTaskFilter{Limit: 3, Offset: 9})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -312,7 +307,7 @@ func TestListTasks_TotalReflectsFullCount(t *testing.T) {
 	})
 
 	t.Run("Total with milestone filter and limit", func(t *testing.T) {
-		result, err := svc.ListTasks(&ListTaskFilter{Milestone: "v1.0", Limit: 3})
+		result, err := ListTasks(database, &ListTaskFilter{Milestone: "v1.0", Limit: 3})
 		if err != nil {
 			t.Fatalf("ListTasks failed: %v", err)
 		}
@@ -326,21 +321,6 @@ func TestListTasks_TotalReflectsFullCount(t *testing.T) {
 			t.Error("Expected HasMore=true")
 		}
 	})
-}
-
-func TestListTasks_WithNilDatabase(t *testing.T) {
-	service := NewListService(nil)
-
-	result, err := service.ListTasks(&ListTaskFilter{})
-	if err == nil {
-		t.Error("Expected error with nil database, got nil")
-	}
-	if !errors.Is(err, ErrNilDatabase) {
-		t.Errorf("Expected ErrNilDatabase, got %v", err)
-	}
-	if result != nil {
-		t.Error("Expected nil result with nil database")
-	}
 }
 
 func TestListTasks_WithNilFilter(t *testing.T) {
@@ -369,10 +349,8 @@ func TestListTasks_WithNilFilter(t *testing.T) {
 		t.Fatalf("Failed to create task: %v", err)
 	}
 
-	service := NewListService(database)
-
 	// Test with nil filter
-	result, err := service.ListTasks(nil)
+	result, err := ListTasks(database, nil)
 	if err != nil {
 		t.Fatalf("ListTasks with nil filter failed: %v", err)
 	}
@@ -384,8 +362,10 @@ func TestListTasks_WithNilFilter(t *testing.T) {
 	}
 }
 
-func TestGetFilteredCount_Basic(t *testing.T) {
-	// Create a temporary database file for testing
+// TestListTasks_TotalUsesFilteredCount verifies the Total field, which is
+// produced by the filtered count query inlined into ListTasks, reflects the
+// filtered full count ignoring limit/offset.
+func TestListTasks_TotalUsesFilteredCount(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "test-db-*.db")
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
@@ -432,75 +412,149 @@ func TestGetFilteredCount_Basic(t *testing.T) {
 		}
 	}
 
-	service := NewListService(database)
-
 	// Test 1: Count all tasks
 	t.Run("CountAll", func(t *testing.T) {
-		count, err := service.GetFilteredCount(&ListTaskFilter{})
+		result, err := ListTasks(database, &ListTaskFilter{Limit: 1})
 		if err != nil {
-			t.Fatalf("GetFilteredCount failed: %v", err)
+			t.Fatalf("ListTasks failed: %v", err)
 		}
-		if count != 3 {
-			t.Errorf("Expected count=3, got %d", count)
+		if result.Total != 3 {
+			t.Errorf("Expected count=3, got %d", result.Total)
 		}
 	})
 
 	// Test 2: Count with milestone filter
 	t.Run("CountWithMilestone", func(t *testing.T) {
-		count, err := service.GetFilteredCount(&ListTaskFilter{Milestone: "v1.0"})
+		result, err := ListTasks(database, &ListTaskFilter{Milestone: "v1.0"})
 		if err != nil {
-			t.Fatalf("GetFilteredCount failed: %v", err)
+			t.Fatalf("ListTasks failed: %v", err)
 		}
-		if count != 2 {
-			t.Errorf("Expected count=2 for milestone v1.0, got %d", count)
+		if result.Total != 2 {
+			t.Errorf("Expected count=2 for milestone v1.0, got %d", result.Total)
 		}
 	})
 
 	// Test 3: Count with status filter
 	t.Run("CountWithStatus", func(t *testing.T) {
-		count, err := service.GetFilteredCount(&ListTaskFilter{Status: "done"})
+		result, err := ListTasks(database, &ListTaskFilter{Status: "done"})
 		if err != nil {
-			t.Fatalf("GetFilteredCount failed: %v", err)
+			t.Fatalf("ListTasks failed: %v", err)
 		}
-		if count != 1 {
-			t.Errorf("Expected count=1 for status done, got %d", count)
+		if result.Total != 1 {
+			t.Errorf("Expected count=1 for status done, got %d", result.Total)
 		}
 	})
 
 	// Test 4: Count with actor filter
 	t.Run("CountWithActor", func(t *testing.T) {
-		count, err := service.GetFilteredCount(&ListTaskFilter{Actor: "alice"})
+		result, err := ListTasks(database, &ListTaskFilter{Actor: "alice"})
 		if err != nil {
-			t.Fatalf("GetFilteredCount failed: %v", err)
+			t.Fatalf("ListTasks failed: %v", err)
 		}
-		if count != 1 {
-			t.Errorf("Expected count=1 for actor alice, got %d", count)
+		if result.Total != 1 {
+			t.Errorf("Expected count=1 for actor alice, got %d", result.Total)
 		}
 	})
 
 	// Test 5: Count with nil filter
 	t.Run("CountWithNilFilter", func(t *testing.T) {
-		count, err := service.GetFilteredCount(nil)
+		result, err := ListTasks(database, nil)
 		if err != nil {
-			t.Fatalf("GetFilteredCount with nil filter failed: %v", err)
+			t.Fatalf("ListTasks with nil filter failed: %v", err)
 		}
-		if count != 3 {
-			t.Errorf("Expected count=3 with nil filter, got %d", count)
+		if result.Total != 3 {
+			t.Errorf("Expected count=3 with nil filter, got %d", result.Total)
 		}
 	})
 }
 
-func TestGetFilteredCount_WithNilDatabase(t *testing.T) {
-	service := NewListService(nil)
+func TestGetTask_Valid(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test-db-*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
 
-	count, err := service.GetFilteredCount(&ListTaskFilter{})
+	database, err := db.NewDB(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer database.Close()
+
+	task := db.Task{
+		ID:          "TASK-001",
+		Milestone:   "v1.0",
+		Title:       "Implement login",
+		Description: "Add authentication system",
+		Status:      "todo",
+		Actor:       "alice",
+		LastUpdated: time.Now(),
+	}
+	if err := database.CreateTask(&task); err != nil {
+		t.Fatalf("Failed to create task: %v", err)
+	}
+
+	item, err := GetTask(database, "TASK-001")
+	if err != nil {
+		t.Fatalf("GetTask failed: %v", err)
+	}
+	if item.ID != "TASK-001" {
+		t.Errorf("Expected ID TASK-001, got %s", item.ID)
+	}
+	if item.Title != "Implement login" {
+		t.Errorf("Expected title 'Implement login', got %s", item.Title)
+	}
+	if item.Status != "todo" {
+		t.Errorf("Expected status todo, got %s", item.Status)
+	}
+	if item.Created == "" || item.LastUpdated == "" {
+		t.Error("Expected formatted timestamps to be non-empty")
+	}
+}
+
+func TestGetTask_NotFound(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test-db-*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	database, err := db.NewDB(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer database.Close()
+
+	item, err := GetTask(database, "nonexistent")
 	if err == nil {
-		t.Error("Expected error with nil database, got nil")
+		t.Error("Expected error for nonexistent task, got nil")
 	}
-	if !errors.Is(err, ErrNilDatabase) {
-		t.Errorf("Expected ErrNilDatabase, got %v", err)
+	if item != nil {
+		t.Errorf("Expected nil item, got %v", item)
 	}
-	if count != 0 {
-		t.Errorf("Expected count=0 with nil database, got %d", count)
+}
+
+func TestGetTask_EmptyID(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test-db-*.db")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	database, err := db.NewDB(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer database.Close()
+
+	item, err := GetTask(database, "  ")
+	if err != ErrInvalidID {
+		t.Errorf("expected ErrInvalidID, got %v", err)
+	}
+	if item != nil {
+		t.Errorf("Expected nil item, got %v", item)
 	}
 }

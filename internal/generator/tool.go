@@ -3,36 +3,7 @@ package generator
 import (
 	"bytes"
 	"fmt"
-	"strings"
 	"text/template"
-)
-
-const (
-	FormatTable    = "table"
-	FormatMarkdown = "markdown"
-	FormatXML      = "xml"
-	ValidFormats   = "table, markdown, xml"
-)
-
-const (
-	StatusTodo       = "todo"
-	StatusInProgress = "in_progress"
-	StatusDone       = "done"
-	StatusBlocked    = "blocked"
-	ValidStatuses    = "todo, in_progress, done, blocked"
-)
-
-const (
-	SortByStatus      = "status"
-	SortByPriority    = "priority"
-	SortByMilestone   = "milestone"
-	SortByCreated     = "created"
-	SortByUpdated     = "updated"
-	SortByID          = "id"
-	SortByTitle       = "title"
-	SortByDescription = "description"
-	SortByActor       = "actor"
-	ValidSortBy       = "status, priority, milestone, created, updated, id, title, description, actor"
 )
 
 // ToolWrapperOptions contains options for tool wrapper generation
@@ -59,25 +30,11 @@ type ToolArg struct {
 	Required    bool
 }
 
-// ToolEnumValue represents a single enum value for an argument
-type ToolEnumValue struct {
-	Value       string
-	Description string
-}
-
-// ToolEnum represents an enumeration argument with predefined values
-type ToolEnum struct {
-	Name        string
-	Values      []ToolEnumValue
-	Description string
-}
-
 // ToolCommand represents a taskflow command definition
 type ToolCommand struct {
 	Name        string
 	Description string
 	Args        []ToolArg
-	Enums       []ToolEnum
 	// CLISubcommand is the subcommand passed to the binary (e.g. "list", "update").
 	// Defaults to Name (with underscores replaced by hyphens) if empty.
 	CLISubcommand string
@@ -86,7 +43,7 @@ type ToolCommand struct {
 	FixedStatus string
 }
 
-func getToolCommandsWithEnums() []ToolCommand {
+func getToolCommands() []ToolCommand {
 	return []ToolCommand{
 		{
 			Name:        "add",
@@ -130,7 +87,6 @@ func getToolCommandsWithEnums() []ToolCommand {
 				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
 				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
 				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-				{Name: "all", Type: "boolean", Description: "Show all tasks including completed", Required: false},
 			},
 		},
 		{
@@ -224,14 +180,6 @@ var toolWrapperTmpl = template.Must(template.New("tool-wrapper").Funcs(template.
 			return fmt.Sprintf("tool.schema.string().describe(%q)", arg.Description)
 		}
 	},
-	// enumSchema returns the tool.schema.enum([...]).describe(...) call.
-	"enumSchema": func(enum ToolEnum) string {
-		vals := make([]string, len(enum.Values))
-		for i, v := range enum.Values {
-			vals[i] = fmt.Sprintf("%q", v.Value)
-		}
-		return fmt.Sprintf("tool.schema.enum([%s]).describe(%q)", strings.Join(vals, ", "), enum.Description)
-	},
 	// last returns true when i is the last index of a slice of length n.
 	"last": func(i, n int) bool { return i == n-1 },
 	// cliSub returns the CLI subcommand for a command, falling back to Name.
@@ -283,9 +231,6 @@ function checkVersion(bin) {
 export const task_{{$cmd.Name}} = tool({
   description: {{printf "%q" $cmd.Description}},
   args: {
-{{- range $cmd.Enums}}
-    {{.Name}}: {{enumSchema .}},
-{{- end}}
 {{- range $i, $arg := $cmd.Args}}
     {{$arg.Name}}: {{zodSchema $arg}}{{if not (last $i (len $cmd.Args))}},{{end}}
 {{- end}}
@@ -337,7 +282,7 @@ func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 	if err := toolWrapperTmpl.Execute(&buf, toolWrapperTmplData{
 		BinaryPath: opts.BinaryPath,
 		Version:    opts.Version,
-		Commands:   getToolCommandsWithEnums(),
+		Commands:   getToolCommands(),
 	}); err != nil {
 		return "", fmt.Errorf("tool wrapper template: %w", err)
 	}

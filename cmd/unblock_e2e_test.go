@@ -38,7 +38,7 @@ func buildTaskflowBinary(t *testing.T) (binPath string, cleanup func()) {
 		}
 		projectRoot = parent
 	}
-	
+
 	// Build the binary
 	cmd := exec.Command("go", "build", "-o", binPath, ".")
 	cmd.Dir = projectRoot
@@ -82,7 +82,7 @@ func parseTaskJSON(t *testing.T, output string) map[string]interface{} {
 	// Find the JSON portion in the output (taskflow prints it as the last JSON object)
 	// Handle both single-line and multi-line JSON
 	output = strings.TrimSpace(output)
-	
+
 	// Find the first '{' and last '}' to extract JSON
 	start := strings.Index(output, "{")
 	end := strings.LastIndex(output, "}")
@@ -107,12 +107,12 @@ func parseTaskJSON(t *testing.T, output string) map[string]interface{} {
 }
 
 // TestTaskUnblock_E2E exercises the full task lifecycle through the CLI:
-// 1. Add a task
-// 2. Block the task
-// 3. Unblock the task (with a description update)
-// 4. Verify via list command that status is 'todo', description updated,
-//    blocked_by is null, and last_updated is refreshed
-// 5. Clean up the test task
+//  1. Add a task
+//  2. Block the task
+//  3. Unblock the task (with a description update)
+//  4. Verify via list command that status is 'todo', description updated,
+//     blocked_by is null, and last_updated is refreshed
+//  5. Clean up the test task
 func TestTaskUnblock_E2E(t *testing.T) {
 	// Create a unique task ID to avoid collisions
 	taskID := "e2e-unblock-task-" + fmt.Sprintf("%d", time.Now().UnixNano())
@@ -304,6 +304,122 @@ func TestTaskUnblock_E2E_NoDescription(t *testing.T) {
 	// Cleanup
 	_, _, _ = runTaskflow(t, binPath, dbDir, "delete",
 		fmt.Sprintf(`{"id":"%s"}`, taskID))
+}
+
+// TestTaskUnblock_E2E_DescriptionHandling verifies the unblock command's
+// description handling: an existing-but-empty description ("" or whitespace)
+// preserves the stored description instead of failing, a non-string
+// description fails with the same must-be-a-string error as before, and a
+// real description overwrites it.
+func TestTaskUnblock_E2E_DescriptionHandling(t *testing.T) {
+	cases := []struct {
+		name       string
+		payload    string
+		wantErr    bool
+		wantSubstr []string // required substrings in stderr when wantErr
+		// wantDesc is the exact expected description after unblock.
+		// wantDescContains is a substring the stored description must contain
+		// (used when blocking appends its [BLOCKED: ...] suffix).
+		wantDesc         string
+		wantDescContains string
+	}{
+		{
+			name:             "empty description preserves stored description",
+			payload:          `{"id":"%s","description":""}`,
+			wantErr:          false,
+			wantSubstr:       nil,
+			wantDescContains: "Stored description before block",
+		},
+		{
+			name:             "whitespace description preserves stored description",
+			payload:          `{"id":"%s","description":"   "}`,
+			wantErr:          false,
+			wantSubstr:       nil,
+			wantDescContains: "Stored description before block",
+		},
+		{
+			name:       "non-string description fails with must-be-a-string error",
+			payload:    `{"id":"%s","description":42}`,
+			wantErr:    true,
+			wantSubstr: []string{"must be a string", "invalid_argument"},
+		},
+		{
+			name:     "real description overwrites stored description",
+			payload:  `{"id":"%s","description":"Overwritten by description handling test"}`,
+			wantErr:  false,
+			wantDesc: "Overwritten by description handling test",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			taskID := "e2e-unblock-desc-" + fmt.Sprintf("%d", time.Now().UnixNano())
+			originalDesc := "Stored description before block for " + tc.name
+
+			tmpDir := t.TempDir()
+			dbDir := filepath.Join(tmpDir, "taskflow-db")
+			if err := os.MkdirAll(dbDir, 0755); err != nil {
+				t.Fatalf("failed to create db dir: %v", err)
+			}
+
+			binPath, binCleanup := buildTaskflowBinary(t)
+			defer binCleanup()
+
+			// Add a task with a known description, then block it.
+			if _, stderr, err := runTaskflow(t, binPath, dbDir, "add",
+				fmt.Sprintf(`{"id":"%s","milestone":"sprint-1","title":"Desc Handling Test","description":"%s","actor":"test-e2e"}`,
+					taskID, originalDesc)); err != nil {
+				t.Fatalf("task add failed: %v\nstderr: %s", err, stderr)
+			}
+			if _, stderr, err := runTaskflow(t, binPath, dbDir, "block",
+				fmt.Sprintf(`{"id":"%s","reason":"Blocked for description handling test"}`, taskID)); err != nil {
+				t.Fatalf("task block failed: %v\nstderr: %s", err, stderr)
+			}
+
+			// Unblock with the case payload.
+			stdout, stderr, err := runTaskflow(t, binPath, dbDir, "unblock",
+				fmt.Sprintf(tc.payload, taskID))
+
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected unblock to fail, got nil error; stdout: %s", stdout)
+				}
+				stderrLower := strings.ToLower(stderr)
+				for _, want := range tc.wantSubstr {
+					if !strings.Contains(stderrLower, strings.ToLower(want)) {
+						t.Errorf("expected stderr to contain %q, got: %s", want, stderr)
+					}
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("task unblock failed: %v\nstderr: %s", err, stderr)
+			}
+
+			// Verify the stored description via list.
+			stdout, stderr, err = runTaskflow(t, binPath, dbDir, "list",
+				fmt.Sprintf(`{"id":"%s"}`, taskID))
+			if err != nil {
+				t.Fatalf("task list failed: %v\nstderr: %s", err, stderr)
+			}
+			result := parseTaskJSON(t, stdout)
+			storedDesc, _ := result["Description"].(string)
+			if tc.wantDesc != "" && storedDesc != tc.wantDesc {
+				t.Errorf("expected description %q, got %q", tc.wantDesc, storedDesc)
+			}
+			if tc.wantDescContains != "" && !strings.Contains(storedDesc, tc.wantDescContains) {
+				t.Errorf("expected description to contain %q, got %q", tc.wantDescContains, storedDesc)
+			}
+			if result["Status"] != "todo" {
+				t.Errorf("expected status 'todo' after unblock, got %v", result["Status"])
+			}
+
+			// Cleanup
+			_, _, _ = runTaskflow(t, binPath, dbDir, "delete",
+				fmt.Sprintf(`{"id":"%s"}`, taskID))
+		})
+	}
 }
 
 // TestTaskUnblock_E2E_NonStringID verifies that unblocking with a non-string id

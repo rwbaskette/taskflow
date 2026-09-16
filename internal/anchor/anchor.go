@@ -36,10 +36,8 @@ const (
 
 // PointerStatus values carried on Anchor.
 const (
-	StatusOK        = "ok"
-	StatusDangling  = "dangling"
-	StatusMalformed = "malformed"
-	StatusWrongType = "wrong-type"
+	StatusOK       = "ok"
+	StatusDangling = "dangling"
 )
 
 // AnchorError reason values. Each maps to exactly one sentinel error.

@@ -2,13 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/rwbaskette/taskflow/internal/db"
+	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 	"github.com/rwbaskette/taskflow/internal/service"
-	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 var blockJSON string
@@ -22,16 +20,7 @@ var blockCmd = &cobra.Command{
   task block -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		path, err := db.DefaultDBPath()
-		if err != nil {
-			printAnchorError(err) // exits 2
-			return
-		}
-		database, err := db.NewDB(path)
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
+		database := openDB()
 		defer database.Close()
 
 		jsonArg := blockJSON
@@ -39,27 +28,25 @@ var blockCmd = &cobra.Command{
 			jsonArg = args[0]
 		}
 		if jsonArg == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-			return
+			fatal(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
 		}
 
 		doc, err := service.ParseJSONFromArg(jsonArg)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
 		id, _ := service.GetStringFieldTrim(doc, "id")
 		reason, _ := service.GetStringFieldTrim(doc, "reason")
 
 		if err := cliErrors.ValidateID(id); err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
-		if strings.TrimSpace(reason) == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("reason", "reason is required in JSON document"))
-			return
+		// GetStringFieldTrim already trims and reports an empty reason as
+		// absent, so an empty value here means the reason is missing.
+		if reason == "" {
+			fatal(cliErrors.MissingArgumentError("reason", "reason is required in JSON document"))
 		}
 
 		result, err := service.BlockTask(database, service.BlockTaskInput{
@@ -67,8 +54,7 @@ var blockCmd = &cobra.Command{
 			Reason: reason,
 		})
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
 		fmt.Printf("Task blocked successfully:\n")

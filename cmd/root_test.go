@@ -63,16 +63,13 @@ func TestRootCmdVersionTemplate(t *testing.T) {
 }
 
 func TestPersistentFlags(t *testing.T) {
-	// Test that config flag exists
-	flag := rootCmd.PersistentFlags().Lookup("config")
-	if flag == nil {
-		t.Error("Expected 'config' flag to exist")
+	// The dead --config and --verbose flags were removed: neither was ever
+	// read (cfgFile referenced a config.yaml that does not exist).
+	if flag := rootCmd.PersistentFlags().Lookup("config"); flag != nil {
+		t.Error("Expected 'config' flag to be removed")
 	}
-
-	// Test that verbose flag exists
-	flag = rootCmd.PersistentFlags().Lookup("verbose")
-	if flag == nil {
-		t.Error("Expected 'verbose' flag to exist")
+	if flag := rootCmd.PersistentFlags().Lookup("verbose"); flag != nil {
+		t.Error("Expected 'verbose' flag to be removed")
 	}
 }
 

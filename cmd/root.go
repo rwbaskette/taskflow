@@ -7,15 +7,12 @@ import (
 	"path/filepath"
 
 	"github.com/rwbaskette/taskflow/internal/anchor"
+	"github.com/rwbaskette/taskflow/internal/db"
+	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 	"github.com/spf13/cobra"
 )
 
-var (
-	cfgFile string
-	version = "0.1.0"
-	commit  = ""
-	date    = ""
-)
+var version = "0.1.0"
 
 var rootCmd = &cobra.Command{
 	Use:   "taskflow",
@@ -41,6 +38,83 @@ func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+// fatal reports err via cliErrors.HandleError and exits. HandleError exits 1
+// on every non-nil error (both the JSON and the marshal-fallback branches end
+// in os.Exit(1); it returns only when err is nil). fatal is only ever called
+// with a non-nil error, but the trailing os.Exit(1) keeps the helper
+// provably noreturn regardless.
+func fatal(err error) {
+	cliErrors.HandleError(err)
+	os.Exit(1) // unreachable for non-nil err; guarantees fatal never returns
+}
+
+// fatal2 prints err as a plain-text one-liner to stderr and exits 2. It is
+// the init-style fatal path: human-readable text, exit code 2, no JSON.
+func fatal2(err error) {
+	fmt.Fprintf(os.Stderr, "taskflow: %v\n", err)
+	os.Exit(2)
+}
+
+// openDB resolves the default database path and opens it, printing the
+// section 6 error contract (exit 2) on anchor failures and the JSON error
+// contract (exit 1) on open failures. It never returns on error: callers can
+// rely on a non-nil *db.DB. openDB does not close the DB; callers defer
+// database.Close().
+func openDB() *db.DB {
+	path, err := db.DefaultDBPath()
+	if err != nil {
+		printAnchorError(err) // always exits 2 (os.Exit(2) is its last statement)
+		os.Exit(2)            // unreachable; keeps openDB provably noreturn here
+	}
+	database, err := db.NewDB(path)
+	if err != nil {
+		fatal(err)
+	}
+	return database
+}
+
+// validateOptionalTaskFields validates the already-extracted optional task
+// field values (title, milestone, actor, status), exiting via fatal on the
+// first invalid value. Empty values are treated as absent and are valid; the
+// callers extract the fields with service.GetStringFieldTrim, which trims
+// each value and reports empty ones as absent. Validation runs in the order
+// title, milestone, actor, status. Shared by update and complete.
+func validateOptionalTaskFields(title, milestone, actor, status string) {
+	if title != "" {
+		if err := cliErrors.ValidateTitle(title); err != nil {
+			fatal(err)
+		}
+	}
+	if milestone != "" {
+		if err := cliErrors.ValidateMilestone(milestone); err != nil {
+			fatal(err)
+		}
+	}
+	if actor != "" {
+		if err := cliErrors.ValidateActor(actor); err != nil {
+			fatal(err)
+		}
+	}
+	if status != "" {
+		if err := cliErrors.ValidateStatus(status); err != nil {
+			fatal(err)
+		}
+	}
+}
+
+// printTaskResult prints the shared success report for add and update.
+func printTaskResult(verb string, task *db.Task) {
+	fmt.Println("Task " + verb + " successfully:")
+	fmt.Printf("  ID: %s\n", task.ID)
+	fmt.Printf("  Title: %s\n", task.Title)
+	fmt.Printf("  Description: %s\n", task.Description)
+	fmt.Printf("  Milestone: %s\n", task.Milestone)
+	if task.Actor != "" {
+		fmt.Printf("  Actor: %s\n", task.Actor)
+	}
+	fmt.Printf("  Status: %s\n", task.Status)
 }
 
 // pointerReasonText maps an anchor reason to the section 6 pointer-error
@@ -118,19 +192,12 @@ func renderAnchorError(err error) string {
 
 // printAnchorError prints the section 6 error contract to stderr in plain
 // text and exits 2 directly. Anchor errors must never go through
-// cliErrors.HandleError (JSON, exit 1) or PrintError (colored text).
+// cliErrors.HandleError (JSON, exit 1); they render as plain text here.
 func printAnchorError(err error) {
 	fmt.Fprint(os.Stderr, renderAnchorError(err))
 	os.Exit(2)
 }
 
 func init() {
-	cobra.OnInitialize()
-
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is ./config.yaml)")
-	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
-
-	// Set version - Cobra handles --version flag automatically
-	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("Task CLI version: {{.Version}}\n")
 }

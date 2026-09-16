@@ -1,13 +1,10 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
-	"github.com/rwbaskette/taskflow/internal/db"
+	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 	"github.com/rwbaskette/taskflow/internal/service"
-	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 var addJSON string
@@ -21,16 +18,7 @@ var addCmd = &cobra.Command{
   task add -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		path, err := db.DefaultDBPath()
-		if err != nil {
-			printAnchorError(err) // exits 2
-			return
-		}
-		database, err := db.NewDB(path)
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
+		database := openDB()
 		defer database.Close()
 
 		jsonArg := addJSON
@@ -38,14 +26,12 @@ var addCmd = &cobra.Command{
 			jsonArg = args[0]
 		}
 		if jsonArg == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-			return
+			fatal(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
 		}
 
 		doc, err := service.ParseJSONFromArg(jsonArg)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
 		id, _ := service.GetStringFieldTrim(doc, "id")
@@ -55,20 +41,16 @@ var addCmd = &cobra.Command{
 		actor, _ := service.GetStringFieldTrim(doc, "actor")
 
 		if err := cliErrors.ValidateID(id); err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 		if err := cliErrors.ValidateMilestone(milestone); err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 		if err := cliErrors.ValidateTitle(title); err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 		if description == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("description", "description is required in JSON document"))
-			return
+			fatal(cliErrors.MissingArgumentError("description", "description is required in JSON document"))
 		}
 
 		input := &service.AddTaskInput{
@@ -81,19 +63,10 @@ var addCmd = &cobra.Command{
 
 		result, err := service.AddTask(database, input)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
-		fmt.Printf("Task added successfully:\n")
-		fmt.Printf("  ID: %s\n", result.ID)
-		fmt.Printf("  Title: %s\n", result.Title)
-		fmt.Printf("  Description: %s\n", result.Description)
-		fmt.Printf("  Milestone: %s\n", result.Milestone)
-		if result.Actor != "" {
-			fmt.Printf("  Actor: %s\n", result.Actor)
-		}
-		fmt.Printf("  Status: %s\n", result.Status)
+		printTaskResult("added", result)
 	},
 }
 

@@ -374,10 +374,7 @@ func TestResetTimedOut_BusinessLogic(t *testing.T) {
 			database, cleanup := tt.setupDB()
 			defer cleanup()
 
-			input := ResetTimedOutInput{
-				TimeoutMinutes: tt.timeoutMinutes,
-			}
-			result, err := ResetTimedOut(database, input)
+			result, err := ResetTimedOut(database, tt.timeoutMinutes)
 
 			if tt.wantErr && err == nil {
 				t.Error("expected error but got nil")
@@ -385,56 +382,8 @@ func TestResetTimedOut_BusinessLogic(t *testing.T) {
 			if !tt.wantErr && err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
-			if !tt.wantErr && result != nil && len(result.ResetTasks) != tt.wantResetCount {
-				t.Errorf("got %d reset tasks, want %d", len(result.ResetTasks), tt.wantResetCount)
-			}
-		})
-	}
-}
-
-// Test error handling for nil database
-func TestServiceErrors_NilDatabase(t *testing.T) {
-	var nilDB *db.DB = nil
-
-	tests := []struct {
-		name string
-		fn   func() error
-	}{
-		{
-			name: "AddTask with nil database",
-			fn: func() error {
-				_, err := AddTask(nilDB, &AddTaskInput{ID: "t1", Title: "T1", Milestone: "m1"})
-				return err
-			},
-		},
-		{
-			name: "CompleteTask with nil database",
-			fn: func() error {
-				_, err := CompleteTask(nilDB, &CompleteTaskInput{ID: "t1"})
-				return err
-			},
-		},
-		{
-			name: "BlockTask with nil database",
-			fn: func() error {
-				_, err := BlockTask(nilDB, BlockTaskInput{ID: "t1", Reason: "reason"})
-				return err
-			},
-		},
-		{
-			name: "ResetTimedOut with nil database",
-			fn: func() error {
-				_, err := ResetTimedOut(nilDB, ResetTimedOutInput{TimeoutMinutes: 30})
-				return err
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.fn()
-			if err != ErrNilDatabase {
-				t.Errorf("expected ErrNilDatabase, got %v", err)
+			if !tt.wantErr && len(result) != tt.wantResetCount {
+				t.Errorf("got %d reset tasks, want %d", len(result), tt.wantResetCount)
 			}
 		})
 	}
@@ -446,8 +395,6 @@ func TestServiceErrors_Definitions(t *testing.T) {
 		err        error
 		errMessage string
 	}{
-		{ErrNilDatabase, "database connection is nil"},
-		{ErrNilInput, "input is nil"},
 		{ErrInvalidID, "task ID is invalid or missing"},
 		{ErrMissingBlockReason, "reason for blocking is required"},
 		{ErrInvalidTimeout, "timeout minutes must be a positive integer"},

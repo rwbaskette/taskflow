@@ -82,56 +82,13 @@ func (db *DB) Path() string {
 	return db.path
 }
 
-// migrate runs schema migrations, creating tables if they don't exist
+// migrate runs schema migrations, creating tables if they don't exist. The
+// schema is compiled into the binary via //go:embed schema.sql (a missing
+// file is a build error), so no filesystem lookup is needed at runtime.
 func (db *DB) migrate() error {
-	// Try multiple locations for the schema file
-	// Priority: PROJECT_ROOT env > db.path derivation > cwd
-
-	possiblePaths := []string{}
-
-	// From PROJECT_ROOT environment variable (used in tests)
-	if projectRoot := os.Getenv("PROJECT_ROOT"); projectRoot != "" {
-		possiblePaths = append(possiblePaths, filepath.Join(projectRoot, "internal", "db", "schema.sql"))
-	}
-
-	// From absolute db path: /home/rwbaskette/tmp/... -> /home/rwbaskette/tmp/internal/db/schema.sql
-	if filepath.IsAbs(db.path) {
-		projectRoot := filepath.Dir(db.path)
-		possiblePaths = append(possiblePaths, filepath.Join(projectRoot, "internal", "db", "schema.sql"))
-	}
-
-	// From current working directory
-	cwd, _ := os.Getwd()
-	possiblePaths = append(possiblePaths, filepath.Join(cwd, "internal", "db", "schema.sql"))
-
-	// Try to find the schema file
-	var schemaData []byte
-	var lastErr error
-	for _, schemaFile := range possiblePaths {
-		schemaData, lastErr = os.ReadFile(schemaFile)
-		if lastErr == nil {
-			break
-		}
-	}
-
-	// Fallback to embedded schema if file not found
-	if len(schemaData) == 0 && embeddedSchema != "" {
-		schemaData = []byte(embeddedSchema)
-		lastErr = nil
-	}
-
-	if len(schemaData) == 0 {
-		return fmt.Errorf("failed to read schema file: %w", lastErr)
-	}
-
-	schema := string(schemaData)
-
-	// Execute the schema SQL
-	_, err := db.conn.Exec(schema)
-	if err != nil {
+	if _, err := db.conn.Exec(string(embeddedSchema)); err != nil {
 		return fmt.Errorf("failed to execute schema: %w", err)
 	}
-
 	return nil
 }
 
@@ -189,9 +146,4 @@ func DefaultDBPath() (string, error) {
 		}
 	}
 	return a.DBPath, nil
-}
-
-// DB returns the underlying sql.DB for direct queries if needed
-func (db *DB) DB() *sql.DB {
-	return db.conn
 }

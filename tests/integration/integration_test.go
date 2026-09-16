@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 	"github.com/rwbaskette/taskflow/internal/service"
-	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 // TestAddTaskWorkflow tests the full add task workflow
@@ -237,8 +237,7 @@ func TestListTasksWorkflow(t *testing.T) {
 	}
 
 	// Test list all tasks
-	listSvc := service.NewListService(cfg.DB)
-	result, err := listSvc.ListTasks(&service.ListTaskFilter{})
+	result, err := service.ListTasks(cfg.DB, &service.ListTaskFilter{})
 	if err != nil {
 		t.Fatalf("ListTasks failed: %v", err)
 	}
@@ -247,7 +246,7 @@ func TestListTasksWorkflow(t *testing.T) {
 	}
 
 	// Test list with milestone filter
-	result, err = listSvc.ListTasks(&service.ListTaskFilter{
+	result, err = service.ListTasks(cfg.DB, &service.ListTaskFilter{
 		Milestone: "v1.0",
 	})
 	if err != nil {
@@ -258,7 +257,7 @@ func TestListTasksWorkflow(t *testing.T) {
 	}
 
 	// Test list with status filter
-	result, err = listSvc.ListTasks(&service.ListTaskFilter{
+	result, err = service.ListTasks(cfg.DB, &service.ListTaskFilter{
 		Status: "done",
 	})
 	if err != nil {
@@ -269,7 +268,7 @@ func TestListTasksWorkflow(t *testing.T) {
 	}
 
 	// Test list with actor filter
-	result, err = listSvc.ListTasks(&service.ListTaskFilter{
+	result, err = service.ListTasks(cfg.DB, &service.ListTaskFilter{
 		Actor: "dev1",
 	})
 	if err != nil {
@@ -310,24 +309,20 @@ func TestResetTimedOutWorkflow(t *testing.T) {
 	}
 
 	// Reset tasks with invalid timeout (0 should fail validation)
-	_, err = service.ResetTimedOut(cfg.DB, service.ResetTimedOutInput{
-		TimeoutMinutes: 0,
-	})
+	_, err = service.ResetTimedOut(cfg.DB, 0)
 	if err == nil {
 		t.Fatal("expected error for zero timeout")
 	}
 
 	// Reset tasks with large timeout (no tasks should exceed it)
-	result, err := service.ResetTimedOut(cfg.DB, service.ResetTimedOutInput{
-		TimeoutMinutes: 1000,
-	})
+	result, err := service.ResetTimedOut(cfg.DB, 1000)
 	if err != nil {
 		t.Fatalf("ResetTimedOut failed: %v", err)
 	}
 
 	// With large timeout, no tasks should be reset (no time has actually passed)
-	if len(result.ResetTasks) != 0 {
-		t.Errorf("expected 0 tasks reset with large timeout, got %d", len(result.ResetTasks))
+	if len(result) != 0 {
+		t.Errorf("expected 0 tasks reset with large timeout, got %d", len(result))
 	}
 
 	// Verify status is still in_progress
@@ -566,7 +561,7 @@ func TestCleanupBetweenTests(t *testing.T) {
 	}
 
 	// Delete the task
-	err = cfg.DB.DeleteTask("cleanup-test")
+	_, err = cfg.DB.SoftDeleteTask("cleanup-test")
 	if err != nil {
 		t.Fatalf("failed to delete task: %v", err)
 	}
@@ -654,10 +649,8 @@ func TestListTasksPagination(t *testing.T) {
 		}
 	}
 
-	listSvc := service.NewListService(cfg.DB)
-
 	// Test limit
-	result, err := listSvc.ListTasks(&service.ListTaskFilter{
+	result, err := service.ListTasks(cfg.DB, &service.ListTaskFilter{
 		Limit: 5,
 	})
 	if err != nil {
@@ -671,7 +664,7 @@ func TestListTasksPagination(t *testing.T) {
 	}
 
 	// Test offset
-	result, err = listSvc.ListTasks(&service.ListTaskFilter{
+	result, err = service.ListTasks(cfg.DB, &service.ListTaskFilter{
 		Limit:  5,
 		Offset: 5,
 	})
@@ -720,7 +713,7 @@ func TestErrorHandling(t *testing.T) {
 	}
 
 	// Test deleting non-existent task
-	err = cfg.DB.DeleteTask("non-existent")
+	_, err = cfg.DB.SoftDeleteTask("non-existent")
 	if err == nil {
 		t.Error("expected error for deleting non-existent task")
 	}
@@ -900,9 +893,8 @@ func TestMultipleTasksInSequence(t *testing.T) {
 	}
 
 	// Verify counts
-	listSvc := service.NewListService(cfg.DB)
 
-	allResult, err := listSvc.ListTasks(&service.ListTaskFilter{})
+	allResult, err := service.ListTasks(cfg.DB, &service.ListTaskFilter{})
 	if err != nil {
 		t.Fatalf("ListTasks failed: %v", err)
 	}
@@ -910,7 +902,7 @@ func TestMultipleTasksInSequence(t *testing.T) {
 		t.Errorf("expected 5 total tasks, got %d", len(allResult.Tasks))
 	}
 
-	todoResult, err := listSvc.ListTasks(&service.ListTaskFilter{Status: "todo"})
+	todoResult, err := service.ListTasks(cfg.DB, &service.ListTaskFilter{Status: "todo"})
 	if err != nil {
 		t.Fatalf("ListTasks with status filter failed: %v", err)
 	}
@@ -918,7 +910,7 @@ func TestMultipleTasksInSequence(t *testing.T) {
 		t.Errorf("expected 2 todo tasks, got %d", len(todoResult.Tasks))
 	}
 
-	doneResult, err := listSvc.ListTasks(&service.ListTaskFilter{Status: "done"})
+	doneResult, err := service.ListTasks(cfg.DB, &service.ListTaskFilter{Status: "done"})
 	if err != nil {
 		t.Fatalf("ListTasks with status filter failed: %v", err)
 	}
@@ -971,10 +963,8 @@ func TestListTasksSortBy(t *testing.T) {
 		}
 	}
 
-	listSvc := service.NewListService(cfg.DB)
-
 	// Test sort by title
-	result, err := listSvc.ListTasks(&service.ListTaskFilter{SortBy: "title"})
+	result, err := service.ListTasks(cfg.DB, &service.ListTaskFilter{SortBy: "title"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by title failed: %v", err)
 	}
@@ -989,7 +979,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by actor
-	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "actor"})
+	result, err = service.ListTasks(cfg.DB, &service.ListTaskFilter{SortBy: "actor"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by actor failed: %v", err)
 	}
@@ -998,7 +988,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by status
-	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "status"})
+	result, err = service.ListTasks(cfg.DB, &service.ListTaskFilter{SortBy: "status"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by status failed: %v", err)
 	}
@@ -1007,7 +997,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by milestone
-	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "milestone"})
+	result, err = service.ListTasks(cfg.DB, &service.ListTaskFilter{SortBy: "milestone"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by milestone failed: %v", err)
 	}
@@ -1016,7 +1006,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by id
-	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "id"})
+	result, err = service.ListTasks(cfg.DB, &service.ListTaskFilter{SortBy: "id"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by id failed: %v", err)
 	}
@@ -1028,7 +1018,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by description
-	result, err = listSvc.ListTasks(&service.ListTaskFilter{SortBy: "description"})
+	result, err = service.ListTasks(cfg.DB, &service.ListTaskFilter{SortBy: "description"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by description failed: %v", err)
 	}
@@ -1043,7 +1033,7 @@ func TestUnblockNonExistentTask(t *testing.T) {
 	defer teardownTestDB(t, cfg)
 
 	// Attempt to unblock a task that does not exist
-	_, err := service.UnblockTask(cfg.DB, service.UnblockTaskInput{ID: "non-existent-task-id"})
+	_, err := service.UnblockTask(cfg.DB, "non-existent-task-id", "")
 	if err == nil {
 		t.Fatal("expected error for unblocking non-existent task")
 	}
