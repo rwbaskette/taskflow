@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/rwbaskette/taskflow/internal/anchor"
 	"github.com/spf13/cobra"
@@ -81,6 +82,16 @@ func renderAnchorError(err error) string {
 			} else {
 				b = append(b, fmt.Sprintf("  %s\n", dir)...)
 			}
+		}
+		if len(aerr.Chain) == 1 && filepath.IsAbs(aerr.Chain[0]) {
+			// A not-found chain of length one with an absolute start dir means
+			// the walk started at the filesystem root: the launcher ran with
+			// the root as its working directory and no anchor can exist above
+			// it. (A length-one chain can also come from a non-absolute start
+			// fallback such as "." when os.Getwd fails; the IsAbs check keeps
+			// the note off that case.) Print the actual start dir, portable
+			// across volume roots.
+			b = append(b, fmt.Sprintf("note: the search started at the filesystem root; the process that started taskflow ran with cwd=%s and no anchor can exist above it; fix the launcher's working directory or set TASKFLOW_DIR\n", aerr.Chain[0])...)
 		}
 		b = append(b, "remedy: run `taskflow init` in the project root (--target <path> shares one DB across checkouts)\n"...)
 		b = append(b, "or set TASKFLOW_DIR to override\n"...)

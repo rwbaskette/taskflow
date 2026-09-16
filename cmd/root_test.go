@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
+	"github.com/rwbaskette/taskflow/internal/anchor"
 	"github.com/spf13/cobra"
 )
 
@@ -192,5 +194,65 @@ func TestUpdateCommand(t *testing.T) {
 
 	if updateCmd == nil {
 		t.Fatal("Expected 'update' command to exist")
+	}
+}
+
+func TestRenderAnchorErrorNotFoundRootChain(t *testing.T) {
+	// Chain length 1 with an absolute start dir: the walk started at the
+	// filesystem root, so the launcher-cwd note must appear, before the
+	// remedy lines.
+	err := &anchor.AnchorError{Chain: []string{"/"}, Reason: anchor.ReasonNotFound}
+	out := renderAnchorError(err)
+
+	note := "note: the search started at the filesystem root; the process that started taskflow ran with cwd=/ and no anchor can exist above it; fix the launcher's working directory or set TASKFLOW_DIR\n"
+	if !strings.Contains(out, note) {
+		t.Errorf("renderAnchorError() output missing root-start note:\n%s", out)
+	}
+	if !strings.Contains(out, "filesystem root reached") {
+		t.Errorf("renderAnchorError() output missing 'filesystem root reached':\n%s", out)
+	}
+	if !strings.Contains(out, "remedy: run `taskflow init` in the project root") {
+		t.Errorf("renderAnchorError() output missing init remedy line:\n%s", out)
+	}
+	if !strings.Contains(out, "or set TASKFLOW_DIR to override") {
+		t.Errorf("renderAnchorError() output missing TASKFLOW_DIR remedy line:\n%s", out)
+	}
+	if noteIdx := strings.Index(out, "note:"); noteIdx == -1 || noteIdx > strings.Index(out, "remedy:") {
+		t.Errorf("renderAnchorError() note must come before the remedy lines:\n%s", out)
+	}
+}
+
+func TestRenderAnchorErrorNotFoundNonAbsSingleEntry(t *testing.T) {
+	// Chain length 1 with a non-absolute start dir ("." fallback when
+	// os.Getwd fails): the note must NOT appear; the start dir is not a
+	// filesystem root.
+	err := &anchor.AnchorError{Chain: []string{"."}, Reason: anchor.ReasonNotFound}
+	out := renderAnchorError(err)
+
+	if strings.Contains(out, "note:") {
+		t.Errorf("renderAnchorError() output must not contain 'note:' for a non-absolute single-entry chain:\n%s", out)
+	}
+}
+
+func TestRenderAnchorErrorNotFoundMultiEntryChain(t *testing.T) {
+	// Multi-entry chain: the walk started below the root, so no note must
+	// appear.
+	err := &anchor.AnchorError{
+		Chain:  []string{"/home/u/proj", "/home/u", "/"},
+		Reason: anchor.ReasonNotFound,
+	}
+	out := renderAnchorError(err)
+
+	if strings.Contains(out, "note:") {
+		t.Errorf("renderAnchorError() output must not contain 'note:' for a multi-entry chain:\n%s", out)
+	}
+	if !strings.Contains(out, "filesystem root reached") {
+		t.Errorf("renderAnchorError() output missing 'filesystem root reached':\n%s", out)
+	}
+	if !strings.Contains(out, "remedy: run `taskflow init` in the project root") {
+		t.Errorf("renderAnchorError() output missing init remedy line:\n%s", out)
+	}
+	if !strings.Contains(out, "or set TASKFLOW_DIR to override") {
+		t.Errorf("renderAnchorError() output missing TASKFLOW_DIR remedy line:\n%s", out)
 	}
 }

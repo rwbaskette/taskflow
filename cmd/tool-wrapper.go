@@ -35,6 +35,7 @@ for use in the OpenCode environment using the tool() helper format.`,
 		// Build options
 		toolOpts := &generator.ToolWrapperOptions{
 			BinaryPath: binaryPath,
+			Version:    version,
 		}
 
 		// Validate output file path if specified

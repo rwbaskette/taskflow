@@ -58,6 +58,115 @@ func TestGenerateToolWrapper(t *testing.T) {
 	}
 }
 
+func TestGenerateToolWrapperSpawnCwdDirectory(t *testing.T) {
+	opts := DefaultToolWrapperOptions()
+	result, err := GenerateToolWrapper(opts)
+	if err != nil {
+		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+	}
+
+	wantTools := len(getToolCommandsWithEnums())
+
+	// The wrapper is worktree-unaware: no path import, no worktree reads,
+	// no dirname guard. taskflow resolves the anchor by walking up from its
+	// process cwd.
+	if strings.Contains(result, "import path") {
+		t.Error(`GenerateToolWrapper() output must not contain: import path`)
+	}
+	if strings.Contains(result, "context.worktree") {
+		t.Error("GenerateToolWrapper() output must not contain: context.worktree")
+	}
+	if strings.Contains(result, "path.dirname") {
+		t.Error("GenerateToolWrapper() output must not contain: path.dirname")
+	}
+
+	// Each tool must spawn with the opencode session directory as cwd.
+	if count := strings.Count(result, "cwd: context.directory"); count != wantTools {
+		t.Errorf("GenerateToolWrapper() cwd: context.directory count = %d, want %d", count, wantTools)
+	}
+
+	// The options object must contain exactly one cwd option per tool.
+	if count := strings.Count(result, "cwd:"); count != wantTools {
+		t.Errorf("GenerateToolWrapper() cwd option count = %d, want %d", count, wantTools)
+	}
+
+	// Every tool's execute must call checkVersion before building cmdArgs.
+	if count := strings.Count(result, `checkVersion("taskflow");`); count != wantTools {
+		t.Errorf("GenerateToolWrapper() checkVersion call count = %d, want %d", count, wantTools)
+	}
+}
+
+func TestGenerateToolWrapperVersionEmbed(t *testing.T) {
+	t.Run("embedded version", func(t *testing.T) {
+		result, err := GenerateToolWrapper(&ToolWrapperOptions{BinaryPath: "taskflow", Version: "0.1.0"})
+		if err != nil {
+			t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+		}
+		if !strings.Contains(result, `const TASKFLOW_WRAPPER_VERSION = "0.1.0";`) {
+			t.Error(`GenerateToolWrapper() output missing: const TASKFLOW_WRAPPER_VERSION = "0.1.0";`)
+		}
+	})
+
+	t.Run("nil options default to 0.0.0", func(t *testing.T) {
+		result, err := GenerateToolWrapper(nil)
+		if err != nil {
+			t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+		}
+		if !strings.Contains(result, `const TASKFLOW_WRAPPER_VERSION = "0.0.0";`) {
+			t.Error(`GenerateToolWrapper() output missing: const TASKFLOW_WRAPPER_VERSION = "0.0.0";`)
+		}
+	})
+
+	t.Run("empty version defaults to 0.0.0", func(t *testing.T) {
+		result, err := GenerateToolWrapper(&ToolWrapperOptions{BinaryPath: "taskflow"})
+		if err != nil {
+			t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+		}
+		if !strings.Contains(result, `const TASKFLOW_WRAPPER_VERSION = "0.0.0";`) {
+			t.Error(`GenerateToolWrapper() output missing: const TASKFLOW_WRAPPER_VERSION = "0.0.0";`)
+		}
+	})
+
+	t.Run("helper block", func(t *testing.T) {
+		result, err := GenerateToolWrapper(DefaultToolWrapperOptions())
+		if err != nil {
+			t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+		}
+		for _, want := range []string{
+			"function parseSemver(",
+			"function compatible(",
+			"function checkVersion(",
+			// Semver rule lines, pinned verbatim: 0.0.0 disables the rule;
+			// majors must match; a 0-major also pins the minor.
+			"if (runtimeVersion !== null) return;",
+			"if (want.major === 0 && want.minor === 0 && want.patch === 0) return true;",
+			"if (want.major !== got.major) return false;",
+			"if (want.major === 0 && want.minor !== got.minor) return false;",
+			// Cache only on success.
+			"runtimeVersion = got;",
+		} {
+			if !strings.Contains(result, want) {
+				t.Errorf("GenerateToolWrapper() output missing: %s", want)
+			}
+		}
+	})
+}
+
+func TestGenerateToolWrapperCustomBinaryVersionCheck(t *testing.T) {
+	opts := &ToolWrapperOptions{BinaryPath: "mybin", Version: "0.1.0"}
+	result, err := GenerateToolWrapper(opts)
+	if err != nil {
+		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+	}
+
+	if !strings.Contains(result, `checkVersion("mybin")`) {
+		t.Error(`GenerateToolWrapper() should call checkVersion("mybin")`)
+	}
+	if !strings.Contains(result, "execFileSync(`mybin`") {
+		t.Error("GenerateToolWrapper() should use custom binary path in execFileSync")
+	}
+}
+
 func TestGenerateToolWrapperContainsToolHelper(t *testing.T) {
 	opts := DefaultToolWrapperOptions()
 	result, err := GenerateToolWrapper(opts)
@@ -290,6 +399,9 @@ func TestDefaultToolWrapperOptions(t *testing.T) {
 
 	if opts.BinaryPath != "taskflow" {
 		t.Errorf("DefaultToolWrapperOptions() BinaryPath = %v, want taskflow", opts.BinaryPath)
+	}
+	if opts.Version != "0.0.0" {
+		t.Errorf("DefaultToolWrapperOptions() Version = %v, want 0.0.0", opts.Version)
 	}
 }
 

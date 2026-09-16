@@ -38,11 +38,16 @@ const (
 // ToolWrapperOptions contains options for tool wrapper generation
 type ToolWrapperOptions struct {
 	BinaryPath string
+	// Version is the taskflow version the wrapper was generated with.
+	// Empty means unknown ("0.0.0"), which disables the wrapper's
+	// version-compatibility check.
+	Version string
 }
 
 func DefaultToolWrapperOptions() *ToolWrapperOptions {
 	return &ToolWrapperOptions{
 		BinaryPath: "taskflow",
+		Version:    "0.0.0",
 	}
 }
 
@@ -80,8 +85,6 @@ type ToolCommand struct {
 	// the JSON payload sent to the binary.
 	FixedStatus string
 }
-
-
 
 func getToolCommandsWithEnums() []ToolCommand {
 	return []ToolCommand{
@@ -241,6 +244,41 @@ var toolWrapperTmpl = template.Must(template.New("tool-wrapper").Funcs(template.
 }).Parse(`import { tool } from "@opencode-ai/plugin";
 import { execFileSync } from "child_process";
 {{- $bin := .BinaryPath}}
+
+const TASKFLOW_WRAPPER_VERSION = "{{.Version}}";
+
+let runtimeVersion = null;
+
+function parseSemver(text) {
+  const m = String(text).trim().match(/(\d+)\.(\d+)\.(\d+)/);
+  return m ? { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) } : null;
+}
+
+function compatible(want, got) {
+  if (!want || !got) return false;
+  if (want.major === 0 && want.minor === 0 && want.patch === 0) return true;
+  if (want.major !== got.major) return false;
+  if (want.major === 0 && want.minor !== got.minor) return false;
+  return true;
+}
+
+function checkVersion(bin) {
+  if (runtimeVersion !== null) return;
+  let out;
+  try {
+    out = execFileSync(bin, ["version"], { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+  } catch (err) {
+    throw new Error(` + "`" + `taskflow binary "${bin}" is missing, not on PATH, or too old to report a version (${String(err.message).split("\n")[0]}). Upgrade taskflow and run: taskflow tool-wrapper --output ~/.config/opencode/tools/taskflow.ts` + "`" + `);
+  }
+  const got = parseSemver(out);
+  if (!got) {
+    throw new Error(` + "`" + `taskflow version output is not a semver: ${String(out).trim().split("\n")[0]}. Upgrade taskflow and run: taskflow tool-wrapper --output ~/.config/opencode/tools/taskflow.ts` + "`" + `);
+  }
+  if (!compatible(parseSemver(TASKFLOW_WRAPPER_VERSION), got)) {
+    throw new Error(` + "`" + `taskflow wrapper was generated for taskflow ${TASKFLOW_WRAPPER_VERSION} but the installed taskflow reports ${got.major}.${got.minor}.${got.patch}; rebuild taskflow and regenerate the wrapper: taskflow tool-wrapper --output ~/.config/opencode/tools/taskflow.ts` + "`" + `);
+  }
+  runtimeVersion = got;
+}
 {{range $i, $cmd := .Commands}}
 export const task_{{$cmd.Name}} = tool({
   description: {{printf "%q" $cmd.Description}},
@@ -253,6 +291,7 @@ export const task_{{$cmd.Name}} = tool({
 {{- end}}
   },
   async execute(args, context) {
+    checkVersion({{printf "%q" $bin}});
     const cmdArgs = [];
     cmdArgs.push("{{cliSub $cmd}}");
     const payload = {
@@ -265,9 +304,7 @@ export const task_{{$cmd.Name}} = tool({
     };
     cmdArgs.push(JSON.stringify(payload));
 
-    const result = execFileSync(` + "`" + `{{$bin}}` + "`" + `, cmdArgs, {
-      encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], cwd: context.worktree
-    });
+    const result = execFileSync(` + "`" + `{{$bin}}` + "`" + `, cmdArgs, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], cwd: context.directory });
 
     return result;
   },
@@ -277,10 +314,14 @@ export const task_{{$cmd.Name}} = tool({
 // toolWrapperTmplData is the data passed to toolWrapperTmpl.
 type toolWrapperTmplData struct {
 	BinaryPath string
+	Version    string
 	Commands   []ToolCommand
 }
 
 // GenerateToolWrapper generates a TypeScript tool wrapper using the tool() helper format.
+// An empty Version in opts is normalized to "0.0.0". The generated wrapper treats an
+// embedded 0.0.0 as unknown: the semver compatibility rule is disabled, but the wrapper
+// still probes the binary with `version` and refuses a missing binary.
 func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 	if opts == nil {
 		opts = DefaultToolWrapperOptions()
@@ -288,10 +329,14 @@ func GenerateToolWrapper(opts *ToolWrapperOptions) (string, error) {
 	if opts.BinaryPath == "" {
 		opts.BinaryPath = "taskflow"
 	}
+	if opts.Version == "" {
+		opts.Version = "0.0.0"
+	}
 
 	var buf bytes.Buffer
 	if err := toolWrapperTmpl.Execute(&buf, toolWrapperTmplData{
 		BinaryPath: opts.BinaryPath,
+		Version:    opts.Version,
 		Commands:   getToolCommandsWithEnums(),
 	}); err != nil {
 		return "", fmt.Errorf("tool wrapper template: %w", err)

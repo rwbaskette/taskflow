@@ -63,6 +63,8 @@ For OpenCode to use the tool wrapper, ensure:
 - The `~/.config/opencode/tools/` directory exists
 - The `taskflow` binary is in your PATH
 
+After you upgrade taskflow, run `taskflow tool-wrapper` again to regenerate the installed wrapper; the old wrapper keeps the old spawn cwd. The wrapper's version check runs once per opencode process; restart opencode after you replace the taskflow binary.
+
 ### Database Setup
 
 The application automatically creates the SQLite database at `.taskflow/tasks.db` on first run. The database schema includes:
@@ -308,7 +310,7 @@ taskflow reset-timedout -j '{"minutes":30}'
 
 ### OpenCode Tool Wrapper Commands
 
-The `tool-wrapper` command generates a TypeScript wrapper for OpenCode integration. The wrapper exposes these additional commands that map to taskflow CLI calls:
+The `tool-wrapper` command generates a TypeScript wrapper for OpenCode integration. The wrapper runs taskflow in the opencode session directory (`context.directory`). taskflow finds the database by walking up from that directory for the `.taskflow` anchor. The wrapper embeds the taskflow version it was generated with. It refuses to run when the installed taskflow has a different major version, or a different minor version while the major is 0, when the binary is missing, or when the version output is not parseable. The error tells the agent to rebuild taskflow and regenerate the wrapper. The wrapper exposes these additional commands that map to taskflow CLI calls:
 
 | Wrapper Command | Maps To | Description |
 |-----------------|---------|-------------|
