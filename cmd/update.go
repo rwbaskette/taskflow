@@ -3,7 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
 
@@ -33,7 +33,7 @@ var updateCmd = &cobra.Command{
 		milestone, hasMilestone := service.GetStringFieldTrim(doc, "milestone")
 		actor, hasActor := service.GetStringFieldTrim(doc, "actor")
 
-		if err := cliErrors.ValidateID(id); err != nil {
+		if err := clierr.ValidateID(id); err != nil {
 			fatal(err)
 		}
 
@@ -44,7 +44,7 @@ var updateCmd = &cobra.Command{
 		}
 
 		if !hasTitle && !hasDesc && !hasStatus && !hasMilestone && !hasActor {
-			fatal(cliErrors.MissingArgumentError("update field", "at least one of title, description, status, milestone, or actor is required in JSON"))
+			fatal(clierr.MissingArgumentError("update field", "at least one of title, description, status, milestone, or actor is required in JSON"))
 		}
 
 		input := &service.UpdateTaskInput{

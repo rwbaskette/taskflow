@@ -3,8 +3,8 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/db"
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
 
@@ -33,17 +33,17 @@ var addCmd = &cobra.Command{
 		description, _ := service.GetStringFieldTrim(doc, "description")
 		actor, _ := service.GetStringFieldTrim(doc, "actor")
 
-		if err := cliErrors.ValidateID(id); err != nil {
+		if err := clierr.ValidateID(id); err != nil {
 			fatal(err)
 		}
-		if err := cliErrors.ValidateMilestone(milestone); err != nil {
+		if err := clierr.ValidateMilestone(milestone); err != nil {
 			fatal(err)
 		}
-		if err := cliErrors.ValidateTitle(title); err != nil {
+		if err := clierr.ValidateTitle(title); err != nil {
 			fatal(err)
 		}
 		if description == "" {
-			fatal(cliErrors.MissingArgumentError("description", "description is required in JSON document"))
+			fatal(clierr.MissingArgumentError("description", "description is required in JSON document"))
 		}
 
 		task := &db.Task{

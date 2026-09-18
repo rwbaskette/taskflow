@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
 
@@ -34,19 +34,16 @@ var unblockCmd = &cobra.Command{
 			fatal(err)
 		}
 
-		// Validate the optional description parameter. The key must be a
-		// string when present: an empty or whitespace-only string preserves
-		// the stored description, as does an absent key. A non-string value
-		// is an error.
+		// Validate the optional description parameter. The key must be a string
+		// when present: a value that trims to empty preserves the stored
+		// description, as does an absent key. A non-string value is an error.
 		description := ""
 		if val, exists := doc["description"]; exists {
 			s, isString := val.(string)
 			if !isString {
-				fatal(cliErrors.ValidationError("description", "must be a string", "Provide the description as a text string"))
+				fatal(clierr.ValidationError("description", "must be a string", "Provide the description as a text string"))
 			}
-			if strings.TrimSpace(s) != "" {
-				description = s
-			}
+			description = strings.TrimSpace(s)
 		}
 
 		result, err := service.UnblockTask(database, id, description)

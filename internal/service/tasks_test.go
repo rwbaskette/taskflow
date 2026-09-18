@@ -57,11 +57,7 @@ func TestBlockTask_BusinessLogic(t *testing.T) {
 	}
 	_ = database.CreateTask(addInput2)
 
-	blockInput := BlockTaskInput{
-		ID:     "task-to-block-2",
-		Reason: "Test reason",
-	}
-	result, err := BlockTask(database, blockInput)
+	result, err := BlockTask(database, "task-to-block-2", "Test reason")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -87,17 +83,17 @@ func TestBlockTask_BusinessLogic(t *testing.T) {
 	_ = database.CreateTask(&db.Task{ID: "t2", Title: "T2", Milestone: "m1", Status: "todo"})
 
 	// Test validation errors
-	_, err = BlockTask(database, BlockTaskInput{ID: "t1", Reason: ""})
+	_, err = BlockTask(database, "t1", "")
 	if err != ErrMissingBlockReason {
 		t.Errorf("expected ErrMissingBlockReason, got %v", err)
 	}
 
-	_, err = BlockTask(database, BlockTaskInput{ID: "", Reason: "reason"})
+	_, err = BlockTask(database, "", "reason")
 	if err != db.ErrInvalidID {
 		t.Errorf("expected db.ErrInvalidID, got %v", err)
 	}
 
-	_, err = BlockTask(database, BlockTaskInput{ID: "nonexistent", Reason: "reason"})
+	_, err = BlockTask(database, "nonexistent", "reason")
 	if err == nil {
 		t.Error("expected error for nonexistent task")
 	}
@@ -127,11 +123,7 @@ func TestBlockTask_AppendsReasonToDescription(t *testing.T) {
 	}
 
 	// Block the task
-	blockInput := BlockTaskInput{
-		ID:     "task-with-desc",
-		Reason: "Waiting for API",
-	}
-	result, err := BlockTask(database, blockInput)
+	result, err := BlockTask(database, "task-with-desc", "Waiting for API")
 	if err != nil {
 		t.Fatalf("failed to block task: %v", err)
 	}

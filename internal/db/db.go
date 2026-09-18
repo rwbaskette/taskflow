@@ -60,10 +60,12 @@ func NewDB(dbPath string) (*DB, error) {
 		path: absPath,
 	}
 
-	// Run schema migrations
-	if err := database.migrate(); err != nil {
+	// Create the tables from the embedded schema. The schema is compiled into
+	// the binary via //go:embed schema.sql (a missing file is a build error),
+	// so no filesystem lookup is needed at runtime.
+	if _, err := conn.Exec(string(embeddedSchema)); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("migration failed: %w", err)
+		return nil, fmt.Errorf("failed to execute schema: %w", err)
 	}
 
 	return database, nil
@@ -80,16 +82,6 @@ func (db *DB) Close() error {
 // Path returns the absolute path to the database file
 func (db *DB) Path() string {
 	return db.path
-}
-
-// migrate runs schema migrations, creating tables if they don't exist. The
-// schema is compiled into the binary via //go:embed schema.sql (a missing
-// file is a build error), so no filesystem lookup is needed at runtime.
-func (db *DB) migrate() error {
-	if _, err := db.conn.Exec(string(embeddedSchema)); err != nil {
-		return fmt.Errorf("failed to execute schema: %w", err)
-	}
-	return nil
 }
 
 // DefaultDBPath resolves the database path (taskflow-init-anchor.md sections
@@ -118,11 +110,11 @@ func (db *DB) migrate() error {
 // repairs."). The TASKFLOW_DIR env branch above is exempt by design.
 func DefaultDBPath() (string, error) {
 	if dir := os.Getenv("TASKFLOW_DIR"); dir != "" {
-		absPath, err := filepath.Abs(dir)
+		abs, err := filepath.Abs(dir)
 		if err != nil {
-			return filepath.Join(dir, "tasks.db"), nil
+			abs = dir
 		}
-		return filepath.Join(absPath, "tasks.db"), nil
+		return filepath.Join(abs, "tasks.db"), nil
 	}
 
 	a, aerr := anchor.Resolve("")
@@ -138,7 +130,7 @@ func DefaultDBPath() (string, error) {
 	}
 	// The anchor resolved; the DB file itself may still be gone. NewDB would
 	// silently auto-create an empty DB here, which section 3 forbids.
-	if _, serr := os.Stat(a.DBPath); serr != nil && os.IsNotExist(serr) {
+	if _, serr := os.Stat(a.DBPath); os.IsNotExist(serr) {
 		return "", &anchor.AnchorError{
 			Chain:       a.Chain,
 			PointerPath: a.DBPath,

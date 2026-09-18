@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
+	"github.com/rwbaskette/taskflow/internal/clierr"
 )
 
 var (
@@ -81,17 +81,17 @@ func GetNumberField(doc map[string]interface{}, field string) (float64, bool) {
 // success yields the trimmed ID.
 func GetIDField(doc map[string]interface{}) (string, error) {
 	if _, exists := doc["id"]; !exists {
-		return "", cliErrors.MissingIDError()
+		return "", clierr.MissingIDError()
 	}
 
 	idStr, isString := doc["id"].(string)
 	if !isString {
-		return "", cliErrors.NonStringIDError(doc["id"])
+		return "", clierr.NonStringIDError(doc["id"])
 	}
 
 	id := strings.TrimSpace(idStr)
 	if id == "" {
-		return "", cliErrors.EmptyIDError()
+		return "", clierr.EmptyIDError()
 	}
 
 	return id, nil

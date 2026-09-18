@@ -382,8 +382,7 @@ taskflow/
 - **cmd/**: Cobra command implementations - parse flags, validate inputs, call services
 - **internal/db/**: Database layer - connection management, queries, schema
 - **internal/service/**: Business logic - task operations, validation, state transitions
-- **internal/errors/**: Error handling and input validation - CLI error types, ID/status/field validation
-- **internal/output/**: Output formatting - table renderer
+- **internal/clierr/**: Error handling and input validation - CLI error types, ID/status/field validation
 - **internal/generator/**: Code generation - TypeScript tool wrapper for OpenCode
 
 ### Database Schema

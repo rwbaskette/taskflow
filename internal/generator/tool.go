@@ -160,14 +160,10 @@ var toolWrapperTmpl = template.Must(template.New("tool-wrapper").Funcs(template.
 		switch arg.Type {
 		case "number":
 			return fmt.Sprintf("tool.schema.number().describe(%q)", arg.Description)
-		case "boolean":
-			return fmt.Sprintf("tool.schema.boolean().describe(%q)", arg.Description)
 		default:
 			return fmt.Sprintf("tool.schema.string().describe(%q)", arg.Description)
 		}
 	},
-	// last returns true when i is the last index of a slice of length n.
-	"last": func(i, n int) bool { return i == n-1 },
 	// cliSub returns the CLI subcommand for a command, falling back to Name.
 	"cliSub": func(cmd ToolCommand) string {
 		if cmd.CLISubcommand != "" {
@@ -213,12 +209,12 @@ function checkVersion(bin) {
   }
   runtimeVersion = got;
 }
-{{range $i, $cmd := .Commands}}
+{{range $cmd := .Commands}}
 export const task_{{$cmd.Name}} = tool({
   description: {{printf "%q" $cmd.Description}},
   args: {
-{{- range $i, $arg := $cmd.Args}}
-    {{$arg.Name}}: {{zodSchema $arg}}{{if not (last $i (len $cmd.Args))}},{{end}}
+{{- range $arg := $cmd.Args}}
+    {{$arg.Name}}: {{zodSchema $arg}},
 {{- end}}
   },
   async execute(args, context) {

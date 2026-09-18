@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/db"
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 )
 
 // Task-operation errors (the remaining service-level sentinels).
@@ -103,22 +103,16 @@ func UpdateTask(database *db.DB, input *UpdateTaskInput) (*db.Task, error) {
 	return existingTask, nil
 }
 
-// BlockTaskInput contains the input parameters for blocking a task
-type BlockTaskInput struct {
-	ID     string
-	Reason string
-}
-
 // BlockTask blocks an existing task with a reason. The reason is appended to
 // the task description and recorded in the blocked_by list. The returned
 // task reflects the true stored state, including the refreshed LastUpdated
 // stamped by the database.
-func BlockTask(database *db.DB, input BlockTaskInput) (*db.Task, error) {
-	if strings.TrimSpace(input.Reason) == "" {
+func BlockTask(database *db.DB, id, reason string) (*db.Task, error) {
+	if strings.TrimSpace(reason) == "" {
 		return nil, ErrMissingBlockReason
 	}
 
-	existingTask, err := database.ReadTask(input.ID)
+	existingTask, err := database.ReadTask(id)
 	if err != nil {
 		return nil, err
 	}
@@ -128,11 +122,11 @@ func BlockTask(database *db.DB, input BlockTaskInput) (*db.Task, error) {
 	if newDescription != "" {
 		newDescription += "\n"
 	}
-	newDescription += fmt.Sprintf("[BLOCKED: %s]", input.Reason)
+	newDescription += fmt.Sprintf("[BLOCKED: %s]", reason)
 
 	existingTask.Status = "blocked"
 	existingTask.Description = newDescription
-	existingTask.BlockedBy = append(existingTask.BlockedBy, input.Reason)
+	existingTask.BlockedBy = append(existingTask.BlockedBy, reason)
 
 	if err := database.UpdateTask(existingTask); err != nil {
 		return nil, err
@@ -157,11 +151,11 @@ func UnblockTask(database *db.DB, id, description string) (*db.Task, error) {
 	if err != nil {
 		var notFound *db.TaskNotFoundError
 		if errors.As(err, &notFound) {
-			return nil, cliErrors.ResourceNotFoundError("task", id)
+			return nil, clierr.ResourceNotFoundError("task", id)
 		}
 		var notBlocked *db.TaskNotBlockedError
 		if errors.As(err, &notBlocked) {
-			return nil, cliErrors.InvalidStatusTransitionError(id, notBlocked.Status)
+			return nil, clierr.InvalidStatusTransitionError(id, notBlocked.Status)
 		}
 		return nil, err
 	}
@@ -213,27 +207,18 @@ func ResetTimedOut(database *db.DB, timeoutMinutes int) ([]db.Task, error) {
 		return nil, err
 	}
 
-	// Find tasks that have exceeded the timeout: elapsed time since the
-	// last update must be greater than the timeout duration.
+	// Reset each timed-out task (elapsed since last update exceeds the
+	// timeout) to todo status.
 	timeoutDuration := time.Duration(timeoutMinutes) * time.Minute
-	var timedOutTasks []db.Task
+	resetTasks := make([]db.Task, 0, len(inProgressTasks))
 	for _, task := range inProgressTasks {
-		elapsed := time.Since(task.LastUpdated)
-		if elapsed > timeoutDuration {
-			timedOutTasks = append(timedOutTasks, task)
+		if time.Since(task.LastUpdated) <= timeoutDuration {
+			continue
 		}
-	}
-
-	// Reset each timed out task to todo status
-	resetTasks := make([]db.Task, 0, len(timedOutTasks))
-
-	for _, task := range timedOutTasks {
 		task.Status = "todo"
-
 		if err := database.UpdateTask(&task); err != nil {
 			return nil, err
 		}
-
 		resetTasks = append(resetTasks, task)
 	}
 

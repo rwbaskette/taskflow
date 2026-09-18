@@ -920,9 +920,11 @@ func TestUnblockTask(t *testing.T) {
 
 // TestCorruptTimestampTask pins the scanTask parse-error behavior: a row
 // whose created/last_updated columns are not RFC3339 must surface as an
-// error from ReadTask and SoftDeleteTask, never as a zero-time task. The
-// corrupt rows fill every nullable column so the row-level Scan succeeds
-// and the failure lands in the timestamp/blocked_by parse, not the scan.
+// error from ReadTask, never as a zero-time task. SoftDeleteTask copies the
+// row verbatim via INSERT..SELECT without a pre-read parse, so it succeeds
+// and removes the row. The corrupt rows fill every nullable column so the
+// row-level Scan succeeds and the failure lands in the timestamp/blocked_by
+// parse, not the scan.
 func TestCorruptTimestampTask(t *testing.T) {
 	database := setupTestDB(t)
 	defer teardownTestDB(t, database)
@@ -937,8 +939,8 @@ func TestCorruptTimestampTask(t *testing.T) {
 	if _, err := database.ReadTask("corrupt-1"); !strings.Contains(err.Error(), "parse created") {
 		t.Errorf("ReadTask: expected a created-timestamp parse error, got %v", err)
 	}
-	if _, err := database.SoftDeleteTask("corrupt-1"); !strings.Contains(err.Error(), "parse created") {
-		t.Errorf("SoftDeleteTask: expected a created-timestamp parse error, got %v", err)
+	if _, err := database.SoftDeleteTask("corrupt-1"); err != nil {
+		t.Errorf("SoftDeleteTask: expected success (verbatim copy, no parse), got %v", err)
 	}
 
 	// Corrupt blocked_by with valid timestamps must also surface as an

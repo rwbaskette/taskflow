@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
 
@@ -27,7 +27,7 @@ var deleteCmd = &cobra.Command{
 
 		id, _ := service.GetStringFieldTrim(doc, "id")
 
-		if err := cliErrors.ValidateID(id); err != nil {
+		if err := clierr.ValidateID(id); err != nil {
 			fatal(err)
 		}
 
@@ -39,7 +39,7 @@ var deleteCmd = &cobra.Command{
 			fatal(err)
 		}
 
-		fmt.Printf("Task deleted successfully:\n")
+		fmt.Println("Task deleted successfully:")
 		fmt.Printf("  ID: %s\n", result.ID)
 		fmt.Printf("  Title: %s\n", result.Title)
 		fmt.Printf("  Deleted On: %s\n", result.DeletedOn.Format("2006-01-02 15:04:05"))

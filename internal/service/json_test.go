@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
+	"github.com/rwbaskette/taskflow/internal/clierr"
 )
 
 func TestParseJSONFromArg_ValidJSON(t *testing.T) {
@@ -117,8 +117,8 @@ func TestGetIDField_Missing(t *testing.T) {
 		t.Fatal("expected error for missing id, got nil")
 	}
 
-	want := cliErrors.MissingIDError()
-	var got *cliErrors.CLIError
+	want := clierr.MissingIDError()
+	var got *clierr.CLIError
 	if !errors.As(err, &got) {
 		t.Fatalf("expected CLIError, got %v", err)
 	}
@@ -136,8 +136,8 @@ func TestGetIDField_NonString(t *testing.T) {
 		t.Fatal("expected error for non-string id, got nil")
 	}
 
-	want := cliErrors.NonStringIDError(123)
-	var got *cliErrors.CLIError
+	want := clierr.NonStringIDError(123)
+	var got *clierr.CLIError
 	if !errors.As(err, &got) {
 		t.Fatalf("expected CLIError, got %v", err)
 	}
@@ -158,8 +158,8 @@ func TestGetIDField_Empty(t *testing.T) {
 		t.Fatal("expected error for empty id, got nil")
 	}
 
-	want := cliErrors.EmptyIDError()
-	var got *cliErrors.CLIError
+	want := clierr.EmptyIDError()
+	var got *clierr.CLIError
 	if !errors.As(err, &got) {
 		t.Fatalf("expected CLIError, got %v", err)
 	}

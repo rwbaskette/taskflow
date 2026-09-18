@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -87,6 +88,9 @@ func scanTask(scan interface{ Scan(dest ...any) error }) (Task, error) {
 	return t, nil
 }
 
+// ValidStatuses are the canonical status values stored in the database.
+var ValidStatuses = []string{"todo", "in_progress", "done", "blocked"}
+
 // validateTask validates task data before creation/update
 func validateTask(t *Task) error {
 	if t == nil {
@@ -101,15 +105,8 @@ func validateTask(t *Task) error {
 		return &InvalidTaskError{Field: "title", Message: "title cannot be empty"}
 	}
 
-	validStatuses := map[string]bool{
-		"todo":        true,
-		"in_progress": true,
-		"done":        true,
-		"blocked":     true,
-	}
-
-	if !validStatuses[t.Status] {
-		return &InvalidTaskError{Field: "status", Message: "status must be one of: todo, in_progress, done, blocked"}
+	if !slices.Contains(ValidStatuses, t.Status) {
+		return &InvalidTaskError{Field: "status", Message: "status must be one of: " + strings.Join(ValidStatuses, ", ")}
 	}
 
 	return nil
@@ -125,10 +122,11 @@ func (db *DB) CreateTask(t *Task) error {
 		return err
 	}
 
-	// Check if task already exists
-	exists, err := db.taskExists(t.ID)
+	// Check if the task already exists
+	var exists bool
+	err := db.conn.QueryRow(`SELECT EXISTS(SELECT 1 FROM tasks WHERE id = ?)`, t.ID).Scan(&exists)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to check task existence: %w", err)
 	}
 	if exists {
 		return &TaskAlreadyExistsError{ID: t.ID}
@@ -209,11 +207,7 @@ func (db *DB) UpdateTask(t *Task) error {
 	// Always update LastUpdated to current time
 	t.LastUpdated = time.Now().UTC()
 
-	var blockedByParam interface{}
-	if t.BlockedBy != nil {
-		blockedByJSON, _ := json.Marshal(t.BlockedBy)
-		blockedByParam = string(blockedByJSON)
-	}
+	blockedByJSON, _ := json.Marshal(t.BlockedBy)
 
 	query := `
 		UPDATE tasks
@@ -227,7 +221,7 @@ func (db *DB) UpdateTask(t *Task) error {
 		t.Description,
 		t.Status,
 		t.Actor,
-		blockedByParam,
+		string(blockedByJSON),
 		t.LastUpdated.Format(time.RFC3339),
 		t.ID,
 	)
@@ -247,8 +241,10 @@ func (db *DB) UpdateTask(t *Task) error {
 }
 
 // SoftDeleteTask moves a task to the deleted_tasks table with a deleted_on
-// timestamp. It returns the deleted_on value it stored, so callers display
-// exactly the timestamp that was persisted instead of guessing their own.
+// timestamp. A single INSERT..SELECT copies the row verbatim (including
+// blocked_by) and stamps deleted_on, so no pre-read scan or parse is needed.
+// It returns the deleted_on value it stored, so callers display exactly the
+// timestamp that was persisted instead of guessing their own.
 func (db *DB) SoftDeleteTask(id string) (time.Time, error) {
 	if db == nil || db.conn == nil {
 		return time.Time{}, ErrNilDB
@@ -264,48 +260,30 @@ func (db *DB) SoftDeleteTask(id string) (time.Time, error) {
 	}
 	defer tx.Rollback()
 
-	selectQuery := `
-		SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated
-		FROM tasks WHERE id = ?
-	`
-	t, err := scanTask(tx.QueryRow(selectQuery, id))
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return time.Time{}, &TaskNotFoundError{ID: id}
-		}
-		return time.Time{}, fmt.Errorf("failed to read task: %w", err)
-	}
-
 	deletedOn := time.Now().UTC()
-
-	blockedByJSON, _ := json.Marshal(t.BlockedBy)
-
 	insertQuery := `
 		INSERT INTO deleted_tasks (id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated, deleted_on)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated, ?
+		FROM tasks WHERE id = ?
 	`
-	_, err = tx.Exec(insertQuery,
-		t.ID, t.Milestone, t.Sprint, t.Title, t.Description,
-		t.Status, t.Actor, string(blockedByJSON),
-		t.Created.Format(time.RFC3339), t.LastUpdated.Format(time.RFC3339),
-		deletedOn.Format(time.RFC3339),
-	)
+	result, err := tx.Exec(insertQuery, deletedOn.Format(time.RFC3339), id)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("failed to insert into deleted_tasks: %w", err)
 	}
 
-	deleteQuery := `DELETE FROM tasks WHERE id = ?`
-	result, err := tx.Exec(deleteQuery, id)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to delete from tasks: %w", err)
-	}
-
+	// RowsAffected == 0 means the SELECT matched no row, i.e. the task
+	// does not exist.
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return time.Time{}, fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
 		return time.Time{}, &TaskNotFoundError{ID: id}
+	}
+
+	deleteQuery := `DELETE FROM tasks WHERE id = ?`
+	if _, err := tx.Exec(deleteQuery, id); err != nil {
+		return time.Time{}, fmt.Errorf("failed to delete from tasks: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -450,17 +428,6 @@ func getSortOrder(sortBy SortBy) string {
 	default:
 		return " ORDER BY last_updated DESC"
 	}
-}
-
-// taskExists checks if a task exists in the database
-func (db *DB) taskExists(id string) (bool, error) {
-	query := `SELECT EXISTS(SELECT 1 FROM tasks WHERE id = ? LIMIT 1)`
-	var exists bool
-	err := db.conn.QueryRow(query, id).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("failed to check task existence: %w", err)
-	}
-	return exists, nil
 }
 
 // UnblockTask transitions a task from 'blocked' to 'todo' status in a single

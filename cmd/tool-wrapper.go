@@ -78,12 +78,11 @@ for use in the OpenCode environment using the tool() helper format.`,
 			if err != nil {
 				return err
 			}
-			// Ensure the directory exists
-			dir := filepath.Dir(cleanPath)
-			if dir != "." && dir != "" {
-				if err := os.MkdirAll(dir, 0755); err != nil {
-					return fmt.Errorf("creating directory: %w", err)
-				}
+			// Ensure the directory exists. cleanPath is always absolute, so
+			// filepath.Dir never returns "." or ""; and MkdirAll on an
+			// existing directory is a no-op, so no guard is needed.
+			if err := os.MkdirAll(filepath.Dir(cleanPath), 0755); err != nil {
+				return fmt.Errorf("creating directory: %w", err)
 			}
 			outputFile = cleanPath
 		}
@@ -102,7 +101,7 @@ for use in the OpenCode environment using the tool() helper format.`,
 			fmt.Fprintf(cmd.OutOrStdout(), "Generated tool wrapper to: %s\n", outputFile)
 			return nil
 		}
-		_, err = cmd.OutOrStdout().Write([]byte(code))
+		_, err = fmt.Fprint(cmd.OutOrStdout(), code)
 		return err
 	},
 }

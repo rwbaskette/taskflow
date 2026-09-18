@@ -3,7 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
 
@@ -29,20 +29,17 @@ var blockCmd = &cobra.Command{
 		id, _ := service.GetStringFieldTrim(doc, "id")
 		reason, _ := service.GetStringFieldTrim(doc, "reason")
 
-		if err := cliErrors.ValidateID(id); err != nil {
+		if err := clierr.ValidateID(id); err != nil {
 			fatal(err)
 		}
 
 		// GetStringFieldTrim already trims and reports an empty reason as
 		// absent, so an empty value here means the reason is missing.
 		if reason == "" {
-			fatal(cliErrors.MissingArgumentError("reason", "reason is required in JSON document"))
+			fatal(clierr.MissingArgumentError("reason", "reason is required in JSON document"))
 		}
 
-		result, err := service.BlockTask(database, service.BlockTaskInput{
-			ID:     id,
-			Reason: reason,
-		})
+		result, err := service.BlockTask(database, id, reason)
 		if err != nil {
 			fatal(err)
 		}

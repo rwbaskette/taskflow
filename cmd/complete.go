@@ -3,7 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
 
@@ -29,22 +29,20 @@ var completeCmd = &cobra.Command{
 		id, _ := service.GetStringFieldTrim(doc, "id")
 		title, _ := service.GetStringFieldTrim(doc, "title")
 		description, _ := service.GetStringFieldTrim(doc, "description")
-		status, hasStatus := service.GetStringFieldTrim(doc, "status")
+		statusInput, hasStatus := service.GetStringFieldTrim(doc, "status")
 		milestone, _ := service.GetStringFieldTrim(doc, "milestone")
 		actor, _ := service.GetStringFieldTrim(doc, "actor")
 
-		if err := cliErrors.ValidateID(id); err != nil {
+		if err := clierr.ValidateID(id); err != nil {
 			fatal(err)
 		}
 
 		validateOptionalTaskFields(title, milestone, actor)
 
-		if hasStatus {
-			status = normalizeStatus(status)
-		}
 		// The completion status defaults to "done" when no override is given.
-		if status == "" {
-			status = "done"
+		status := "done"
+		if hasStatus {
+			status = normalizeStatus(statusInput)
 		}
 
 		input := &service.UpdateTaskInput{

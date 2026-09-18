@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/service"
 
 	"github.com/rwbaskette/taskflow/internal/db"
@@ -163,10 +163,7 @@ func TestBlockTaskWorkflow(t *testing.T) {
 	}
 
 	// Block the task
-	result, err := service.BlockTask(cfg.DB, service.BlockTaskInput{
-		ID:     "task-004",
-		Reason: "Waiting for dependency",
-	})
+	result, err := service.BlockTask(cfg.DB, "task-004", "Waiting for dependency")
 	if err != nil {
 		t.Fatalf("BlockTask failed: %v", err)
 	}
@@ -431,10 +428,7 @@ func TestMultiCommandSequenceWithBlockAndReset(t *testing.T) {
 	}
 
 	// Step 2: Block the task
-	_, err = service.BlockTask(cfg.DB, service.BlockTaskInput{
-		ID:     "seq-002",
-		Reason: "Waiting for API",
-	})
+	_, err = service.BlockTask(cfg.DB, "seq-002", "Waiting for API")
 	if err != nil {
 		t.Fatalf("BlockTask failed: %v", err)
 	}
@@ -713,10 +707,7 @@ func TestErrorHandling(t *testing.T) {
 	}
 
 	// Test blocking non-existent task
-	_, err = service.BlockTask(cfg.DB, service.BlockTaskInput{
-		ID:     "non-existent",
-		Reason: "Won't work",
-	})
+	_, err = service.BlockTask(cfg.DB, "non-existent", "Won't work")
 	if err == nil {
 		t.Error("expected error for blocking non-existent task")
 	}
@@ -854,10 +845,7 @@ func TestBlockAppendsReasonToDescription(t *testing.T) {
 
 	// Block the task with a reason
 	blockReason := "Waiting for dependency"
-	_, err = service.BlockTask(cfg.DB, service.BlockTaskInput{
-		ID:     "block-desc-001",
-		Reason: blockReason,
-	})
+	_, err = service.BlockTask(cfg.DB, "block-desc-001", blockReason)
 	if err != nil {
 		t.Fatalf("BlockTask failed: %v", err)
 	}
@@ -1054,11 +1042,11 @@ func TestUnblockNonExistentTask(t *testing.T) {
 	}
 
 	// Assert that the error is a ResourceNotFoundError with RESOURCE_NOT_FOUND code
-	var cliErr *cliErrors.CLIError
+	var cliErr *clierr.CLIError
 	if !errors.As(err, &cliErr) {
 		t.Fatalf("expected CLIError for non-existent task, got: %v", err)
 	}
-	if cliErr.Code != cliErrors.ErrResourceNotFound {
+	if cliErr.Code != clierr.ErrResourceNotFound {
 		t.Errorf("expected RESOURCE_NOT_FOUND error code, got: %v", cliErr.Code)
 	}
 	if !strings.Contains(cliErr.Message, "non-existent-task-id") {

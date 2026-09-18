@@ -67,7 +67,7 @@ func runCLI(t *testing.T, workdir string, args ...string) cliResult {
 // runCLIWithEnv executes the taskflow binary with custom environment variables.
 // The current environment is scrubbed of TASKFLOW_DIR and PROJECT_ROOT (and
 // only those two) before the env pairs are appended: a parent TASKFLOW_DIR
-// breaks the anchor tests and PROJECT_ROOT leaks into migrate()'s schema
+// breaks the anchor tests and PROJECT_ROOT leaks into NewDB's schema
 // lookup. The scrub keeps those keys absent unless a test sets them
 // explicitly, independent of duplicate-key handling (Go's os/exec keeps the
 // LAST duplicate key in cmd.Env, so a parent value would linger for any test

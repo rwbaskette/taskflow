@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/rwbaskette/taskflow/internal/anchor"
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/db"
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 	"github.com/rwbaskette/taskflow/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -42,13 +43,13 @@ func Execute() {
 	}
 }
 
-// fatal reports err via cliErrors.HandleError and exits. HandleError exits 1
+// fatal reports err via clierr.HandleError and exits. HandleError exits 1
 // on every non-nil error (both the JSON and the marshal-fallback branches end
 // in os.Exit(1); it returns only when err is nil). fatal is only ever called
 // with a non-nil error, but the trailing os.Exit(1) keeps the helper
 // provably noreturn regardless.
 func fatal(err error) {
-	cliErrors.HandleError(err)
+	clierr.HandleError(err)
 	os.Exit(1) // unreachable for non-nil err; guarantees fatal never returns
 }
 
@@ -78,8 +79,8 @@ func openDB() *db.DB {
 }
 
 // statusAliases maps the accepted status aliases (lowercase) to their
-// canonical storable values (db.validateTask only accepts todo, in_progress,
-// done, blocked).
+// canonical storable values (the canonical values are listed in
+// db.ValidStatuses).
 var statusAliases = map[string]string{
 	"pending":     "todo",
 	"in-progress": "in_progress",
@@ -93,25 +94,24 @@ var statusAliases = map[string]string{
 // which is a list-only concept and must never be stored).
 func canonicalStatus(status string) string {
 	s := strings.ToLower(strings.TrimSpace(status))
-	switch s {
-	case "todo", "in_progress", "done", "blocked":
+	if slices.Contains(db.ValidStatuses, s) {
 		return s
 	}
 	return statusAliases[s]
 }
 
-// normalizeStatus validates the status via cliErrors.ValidateStatus (exiting
+// normalizeStatus validates the status via clierr.ValidateStatus (exiting
 // via fatal on error), maps it to its canonical storable value, and returns
 // it. An accepted value with no canonical mapping (only "all") is fatal.
 func normalizeStatus(status string) string {
-	if err := cliErrors.ValidateStatus(status); err != nil {
+	if err := clierr.ValidateStatus(status); err != nil {
 		fatal(err)
 	}
 	canonical := canonicalStatus(status)
 	if canonical == "" {
-		fatal(cliErrors.ValidationError("status",
+		fatal(clierr.ValidationError("status",
 			fmt.Sprintf("'%s' is not a valid task status", status),
-			"Valid statuses: todo, in_progress, done, blocked"))
+			"Valid statuses: "+strings.Join(db.ValidStatuses, ", ")))
 	}
 	return canonical
 }
@@ -124,17 +124,17 @@ func normalizeStatus(status string) string {
 // callers normalize it with normalizeStatus. Shared by update and complete.
 func validateOptionalTaskFields(title, milestone, actor string) {
 	if title != "" {
-		if err := cliErrors.ValidateTitle(title); err != nil {
+		if err := clierr.ValidateTitle(title); err != nil {
 			fatal(err)
 		}
 	}
 	if milestone != "" {
-		if err := cliErrors.ValidateMilestone(milestone); err != nil {
+		if err := clierr.ValidateMilestone(milestone); err != nil {
 			fatal(err)
 		}
 	}
 	if actor != "" {
-		if err := cliErrors.ValidateActor(actor); err != nil {
+		if err := clierr.ValidateActor(actor); err != nil {
 			fatal(err)
 		}
 	}
@@ -151,7 +151,7 @@ func jsonDoc(flagVal string, args []string, emptyDefault string) (map[string]int
 	}
 	if arg == "" {
 		if emptyDefault == "" {
-			return nil, cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin")
+			return nil, clierr.MissingArgumentError("json", "provide JSON document via argument or stdin")
 		}
 		arg = emptyDefault
 	}
@@ -249,7 +249,7 @@ func renderAnchorError(err error) string {
 
 // printAnchorError prints the section 6 error contract to stderr in plain
 // text and exits 2 directly. Anchor errors must never go through
-// cliErrors.HandleError (JSON, exit 1); they render as plain text here.
+// clierr.HandleError (JSON, exit 1); they render as plain text here.
 func printAnchorError(err error) {
 	fmt.Fprint(os.Stderr, renderAnchorError(err))
 	os.Exit(2)

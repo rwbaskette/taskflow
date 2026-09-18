@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/db"
-	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
 
@@ -53,39 +53,31 @@ var listCmd = &cobra.Command{
 		listFilterID, _ := service.GetStringFieldTrim(doc, "id")
 		listSortBy, _ := service.GetStringFieldTrim(doc, "sort_by")
 
-		// listFilterStatus is trimmed by GetStringFieldTrim; compare the
-		// lowercased value so any case of "all" means every status.
-		lowerStatus := strings.ToLower(listFilterStatus)
+		// listFilterStatus is trimmed by GetStringFieldTrim; any case of "all"
+		// means every status. Other values are validated and canonicalized.
 		listStatusFilter := listFilterStatus
-		if lowerStatus == "all" {
+		if strings.EqualFold(listStatusFilter, "all") {
 			listStatusFilter = ""
+		} else if listStatusFilter != "" {
+			listStatusFilter = normalizeStatus(listFilterStatus)
 		}
-
-		if listFilterStatus != "" && lowerStatus != "all" {
-			if err := cliErrors.ValidateStatus(listFilterStatus); err != nil {
-				fatal(err)
-			}
-			if canonical := canonicalStatus(listFilterStatus); canonical != "" {
-				listStatusFilter = canonical
-			}
-		}
-		if err := cliErrors.ValidateMilestone(listFilterMilestone); err != nil {
+		if err := clierr.ValidateMilestone(listFilterMilestone); err != nil {
 			fatal(err)
 		}
-		if err := cliErrors.ValidateActor(listFilterActor); err != nil {
+		if err := clierr.ValidateActor(listFilterActor); err != nil {
 			fatal(err)
 		}
 
 		if listSortBy != "" {
 			if !slices.Contains(validSortBy, listSortBy) {
-				fatal(cliErrors.ValidationError("sort-by",
+				fatal(clierr.ValidationError("sort-by",
 					fmt.Sprintf("'%s' is not valid", listSortBy),
 					fmt.Sprintf("Valid sort values: %s", strings.Join(validSortBy, ", "))))
 			}
 		}
 
 		if listFilterID != "" {
-			if err := cliErrors.ValidateID(listFilterID); err != nil {
+			if err := clierr.ValidateID(listFilterID); err != nil {
 				fatal(err)
 			}
 		}
@@ -144,15 +136,11 @@ var listCmd = &cobra.Command{
 			items = append(items, service.TaskToItem(task))
 		}
 
-		// Get the true total count of all matching records (ignoring
-		// limit/offset) so that pagination metadata is accurate. Limit and
-		// Offset are intentionally omitted — CountTasks ignores them, but we
-		// leave them zero for clarity.
-		total, err := database.CountTasks(db.TaskFilter{
-			Milestone: listFilterMilestone,
-			Status:    listStatusFilter,
-			Actor:     listFilterActor,
-		})
+		// Get the true total count of all matching records so that pagination
+		// metadata is accurate: reuse dbFilter's filters but clear SortBy,
+		// Limit, and Offset, which do not participate in counting.
+		dbFilter.SortBy, dbFilter.Limit, dbFilter.Offset = "", 0, 0
+		total, err := database.CountTasks(dbFilter)
 		if err != nil {
 			fatal(err)
 		}
@@ -176,8 +164,7 @@ var listCmd = &cobra.Command{
 func renderListResult(result *service.ListTaskResult) {
 	jsonData, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
-		fmt.Println("[]")
-		return
+		fatal(err)
 	}
 
 	fmt.Println(string(jsonData))

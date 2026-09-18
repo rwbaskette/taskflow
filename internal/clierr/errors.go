@@ -1,11 +1,14 @@
-// Package errors provides error handling and validation for the CLI.
-package errors
+// Package clierr provides error handling and validation for the CLI.
+package clierr
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
+
+	"github.com/rwbaskette/taskflow/internal/db"
 )
 
 // ErrorCode represents categorized error types.
@@ -97,12 +100,12 @@ func formatCLIErrorAsJSON(cliErr *CLIError) {
 	switch cliErr.Code {
 	case ErrInvalidStatusTransition:
 		// {"status":"error","error_code":"INVALID_STATUS_TRANSITION","message":"...","task":{"id":"...","current_status":"..."}}
-		task := map[string]string{"id": "", "current_status": ""}
+		// The only constructor that produces this code
+		// (InvalidStatusTransitionError) always sets Task, so the key is
+		// present in practice.
 		if cliErr.Task != nil {
-			task["id"] = cliErr.Task["id"]
-			task["current_status"] = cliErr.Task["current_status"]
+			body["task"] = cliErr.Task
 		}
-		body["task"] = task
 
 	case ErrMissingArgument:
 		// {"status":"error","error_code":"MISSING_ARGUMENT","message":"...","missing_parameters":["id"]}
@@ -117,14 +120,9 @@ func formatCLIErrorAsJSON(cliErr *CLIError) {
 		}
 	}
 
-	// Marshaling a string-keyed map of strings/slices/maps cannot fail; the
-	// branch is a safety net.
-	jsonBytes, err := json.Marshal(body)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, cliErr.Message)
-	} else {
-		fmt.Fprintln(os.Stderr, string(jsonBytes))
-	}
+	// Marshaling a string-keyed map of strings/slices/maps cannot fail.
+	jsonBytes, _ := json.Marshal(body)
+	fmt.Fprintln(os.Stderr, string(jsonBytes))
 	os.Exit(1)
 }
 
@@ -183,13 +181,10 @@ func NonStringIDError(actualValue interface{}) *CLIError {
 	}
 }
 
-// validStatusAliases are the status values accepted by ValidateStatus:
-// canonical statuses plus their aliases, keyed lowercase.
+// validStatusAliases are the non-canonical status aliases accepted by
+// ValidateStatus, keyed lowercase. The canonical statuses live in
+// db.ValidStatuses.
 var validStatusAliases = map[string]bool{
-	"todo":        true,
-	"in_progress": true,
-	"done":        true,
-	"blocked":     true,
 	"pending":     true,
 	"in-progress": true,
 	"inprogress":  true,
@@ -207,15 +202,15 @@ func ValidateStatus(status string) error {
 		return nil
 	}
 
-	if validStatusAliases[trimmed] {
+	if validStatusAliases[trimmed] || slices.Contains(db.ValidStatuses, trimmed) {
 		return nil
 	}
 
 	return ValidationError(
 		"status",
 		fmt.Sprintf("'%s' is not valid", status),
-		fmt.Sprintf("Valid statuses: %s (or aliases: pending, in-progress, completed)",
-			strings.Join([]string{"todo", "in_progress", "done", "blocked", "all"}, ", ")),
+		fmt.Sprintf("Valid statuses: %s, all (or aliases: pending, in-progress, completed)",
+			strings.Join(db.ValidStatuses, ", ")),
 	)
 }
 

@@ -10,7 +10,7 @@
 #     when set and non-empty, every command resolves the DB at
 #     abs($TASKFLOW_DIR/tasks.db) and the .taskflow anchor walk is skipped
 #     entirely, so the repo's own .taskflow anchor can never be touched.
-#   - Pinned error codes (internal/errors/errors.go, cmd/unblock_e2e_test.go):
+#   - Pinned error codes (internal/clierr/errors.go, cmd/unblock_e2e_test.go):
 #     INVALID_STATUS_TRANSITION, RESOURCE_NOT_FOUND, INVALID_ARGUMENT,
 #     MISSING_ARGUMENT. Errors print JSON {"status":"error",...} to stderr,
 #     exit 1. Anchor errors are plain text, exit 2.
