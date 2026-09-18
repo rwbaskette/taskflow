@@ -32,7 +32,6 @@ const (
 	SortByCreated     SortBy = "created"
 	SortByUpdated     SortBy = "updated"
 	SortByID          SortBy = "id"
-	SortBySprint      SortBy = "sprint"
 	SortByTitle       SortBy = "title"
 	SortByDescription SortBy = "description"
 	SortByActor       SortBy = "actor"
@@ -41,13 +40,51 @@ const (
 // TaskFilter contains optional filters for listing tasks
 type TaskFilter struct {
 	Milestone string
-	Sprint    string
 	Status    string
 	Actor     string
 	ID        string
 	SortBy    SortBy
 	Limit     int
 	Offset    int
+}
+
+// scanTask scans one row of the standard task SELECT (id, milestone, sprint,
+// title, description, status, actor, blocked_by, created, last_updated) into a
+// Task. It unmarshals blocked_by (SQL NULL or empty means no blockers) and
+// parses created/last_updated as RFC3339. The DB always writes those
+// timestamps in RFC3339, so a parse failure means corrupt data and is
+// propagated.
+func scanTask(scan interface{ Scan(dest ...any) error }) (Task, error) {
+	var t Task
+	var createdStr string
+	var lastUpdatedStr string
+	var blockedByStr *string
+
+	if err := scan.Scan(
+		&t.ID, &t.Milestone, &t.Sprint, &t.Title, &t.Description,
+		&t.Status, &t.Actor, &blockedByStr, &createdStr, &lastUpdatedStr,
+	); err != nil {
+		return Task{}, err
+	}
+
+	if blockedByStr != nil && *blockedByStr != "" {
+		if err := json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy); err != nil {
+			return Task{}, fmt.Errorf("parse blocked_by: %w", err)
+		}
+	}
+
+	var err error
+	t.Created, err = time.Parse(time.RFC3339, createdStr)
+	if err != nil {
+		return Task{}, fmt.Errorf("parse created: %w", err)
+	}
+
+	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
+	if err != nil {
+		return Task{}, fmt.Errorf("parse last_updated: %w", err)
+	}
+
+	return t, nil
 }
 
 // validateTask validates task data before creation/update
@@ -148,41 +185,12 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 		WHERE id = ?
 	`
 
-	var t Task
-	var createdStr string
-	var lastUpdatedStr string
-	var blockedByStr *string
-
-	err := db.conn.QueryRow(query, id).Scan(
-		&t.ID,
-		&t.Milestone,
-		&t.Sprint,
-		&t.Title,
-		&t.Description,
-		&t.Status,
-		&t.Actor,
-		&blockedByStr,
-		&createdStr,
-		&lastUpdatedStr,
-	)
-	if blockedByStr != nil && *blockedByStr != "" {
-		json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
-	}
+	t, err := scanTask(db.conn.QueryRow(query, id))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, &TaskNotFoundError{ID: id}
 		}
 		return nil, fmt.Errorf("failed to read task: %w", err)
-	}
-
-	t.Created, err = time.Parse(time.RFC3339, createdStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse created: %w", err)
-	}
-
-	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 	}
 
 	return &t, nil
@@ -256,33 +264,18 @@ func (db *DB) SoftDeleteTask(id string) (time.Time, error) {
 	}
 	defer tx.Rollback()
 
-	var t Task
-	var createdStr string
-	var lastUpdatedStr string
-	var blockedByRaw interface{}
-
 	selectQuery := `
 		SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated
 		FROM tasks WHERE id = ?
 	`
-	err = tx.QueryRow(selectQuery, id).Scan(
-		&t.ID, &t.Milestone, &t.Sprint, &t.Title, &t.Description,
-		&t.Status, &t.Actor, &blockedByRaw, &createdStr, &lastUpdatedStr,
-	)
+	t, err := scanTask(tx.QueryRow(selectQuery, id))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return time.Time{}, &TaskNotFoundError{ID: id}
 		}
 		return time.Time{}, fmt.Errorf("failed to read task: %w", err)
 	}
-	if blockedByRaw != nil {
-		if s, ok := blockedByRaw.(string); ok && s != "" {
-			json.Unmarshal([]byte(s), &t.BlockedBy)
-		}
-	}
 
-	t.Created, _ = time.Parse(time.RFC3339, createdStr)
-	t.LastUpdated, _ = time.Parse(time.RFC3339, lastUpdatedStr)
 	deletedOn := time.Now().UTC()
 
 	blockedByJSON, _ := json.Marshal(t.BlockedBy)
@@ -331,11 +324,6 @@ func buildTaskWhere(filter TaskFilter) (string, []interface{}) {
 	if filter.Milestone != "" {
 		where += " AND milestone = ?"
 		args = append(args, filter.Milestone)
-	}
-
-	if filter.Sprint != "" {
-		where += " AND sprint = ?"
-		args = append(args, filter.Sprint)
 	}
 
 	if filter.Status != "" {
@@ -397,38 +385,9 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 
 	var tasks []Task
 	for rows.Next() {
-		var t Task
-		var createdStr string
-		var lastUpdatedStr string
-		var blockedByStr *string
-
-		err := rows.Scan(
-			&t.ID,
-			&t.Milestone,
-			&t.Sprint,
-			&t.Title,
-			&t.Description,
-			&t.Status,
-			&t.Actor,
-			&blockedByStr,
-			&createdStr,
-			&lastUpdatedStr,
-		)
+		t, err := scanTask(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
-		}
-		if blockedByStr != nil && *blockedByStr != "" {
-			json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
-		}
-
-		t.Created, err = time.Parse(time.RFC3339, createdStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse created: %w", err)
-		}
-
-		t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 		}
 
 		tasks = append(tasks, t)
@@ -482,8 +441,6 @@ func getSortOrder(sortBy SortBy) string {
 		return " ORDER BY last_updated DESC"
 	case SortByID:
 		return " ORDER BY id ASC"
-	case SortBySprint:
-		return " ORDER BY sprint ASC"
 	case SortByTitle:
 		return " ORDER BY title ASC"
 	case SortByDescription:

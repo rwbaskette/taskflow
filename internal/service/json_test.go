@@ -111,23 +111,6 @@ func TestGetNumberField(t *testing.T) {
 	}
 }
 
-func TestGetBooleanField(t *testing.T) {
-	doc := map[string]interface{}{"all": true, "bad": "not-a-bool"}
-
-	v, ok := GetBooleanField(doc, "all")
-	if !ok || v != true {
-		t.Errorf("expected (true, true), got (%v, %v)", v, ok)
-	}
-
-	if _, ok := GetBooleanField(doc, "bad"); ok {
-		t.Error("expected ok to be false for non-bool type")
-	}
-
-	if _, ok := GetBooleanField(doc, "missing"); ok {
-		t.Error("expected ok to be false for missing field")
-	}
-}
-
 func TestGetIDField_Missing(t *testing.T) {
 	_, err := GetIDField(map[string]interface{}{"title": "Test"})
 	if err == nil {

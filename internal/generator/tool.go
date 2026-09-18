@@ -43,6 +43,17 @@ type ToolCommand struct {
 	FixedStatus string
 }
 
+// listFilterArgs holds the shared argument set for the five list commands
+// (list_all, list_blocked, list_done, list_status_in_progress,
+// list_status_todo). It is read-only: consumers (the wrapper template and
+// tests) never append to or mutate it, so sharing one slice is safe.
+var listFilterArgs = []ToolArg{
+	{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
+	{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
+	{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
+	{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
+}
+
 func getToolCommands() []ToolCommand {
 	return []ToolCommand{
 		{
@@ -82,60 +93,35 @@ func getToolCommands() []ToolCommand {
 			Name:          "list_all",
 			CLISubcommand: "list",
 			Description:   "List all tasks with optional milestone filter.",
-			Args: []ToolArg{
-				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-			},
+			Args:          listFilterArgs,
 		},
 		{
 			Name:          "list_blocked",
 			CLISubcommand: "list",
 			FixedStatus:   "blocked",
 			Description:   "List blocked tasks with optional milestone filter.",
-			Args: []ToolArg{
-				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-			},
+			Args:          listFilterArgs,
 		},
 		{
 			Name:          "list_done",
 			CLISubcommand: "list",
 			FixedStatus:   "done",
 			Description:   "List completed tasks with optional milestone filter.",
-			Args: []ToolArg{
-				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-			},
+			Args:          listFilterArgs,
 		},
 		{
 			Name:          "list_status_in_progress",
 			CLISubcommand: "list",
 			FixedStatus:   "in_progress",
 			Description:   "List in-progress tasks with optional milestone filter.",
-			Args: []ToolArg{
-				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-			},
+			Args:          listFilterArgs,
 		},
 		{
 			Name:          "list_status_todo",
 			CLISubcommand: "list",
 			FixedStatus:   "todo",
 			Description:   "List todo tasks with optional milestone filter.",
-			Args: []ToolArg{
-				{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-				{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-				{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-				{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
-			},
+			Args:          listFilterArgs,
 		},
 		{
 			Name:          "reset_timedout",

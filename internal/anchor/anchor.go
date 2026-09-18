@@ -157,29 +157,6 @@ func (e *AnchorError) Unwrap() error {
 	}
 }
 
-// IsNotFound reports whether err is (or wraps) an anchor not-found error.
-func IsNotFound(err error) bool {
-	return errors.Is(err, ErrNotFound)
-}
-
-// IsMalformedPointer reports whether err is (or wraps) a malformed-pointer
-// error.
-func IsMalformedPointer(err error) bool {
-	return errors.Is(err, ErrMalformedPointer)
-}
-
-// IsWrongTargetType reports whether err is (or wraps) a wrong-target-type
-// error.
-func IsWrongTargetType(err error) bool {
-	return errors.Is(err, ErrWrongTargetType)
-}
-
-// IsDanglingPointer reports whether err is (or wraps) a dangling-pointer
-// error.
-func IsDanglingPointer(err error) bool {
-	return errors.Is(err, ErrDanglingPointer)
-}
-
 // Resolve walks upward from dir looking for a .taskflow anchor. An empty dir
 // means the cwd, with filepath.EvalSymlinks applied to the start dir first
 // (macOS maps /tmp to /private/tmp); if EvalSymlinks errors, the raw start

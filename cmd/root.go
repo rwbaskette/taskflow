@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/rwbaskette/taskflow/internal/anchor"
 	"github.com/rwbaskette/taskflow/internal/db"
 	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
+	"github.com/rwbaskette/taskflow/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -75,13 +77,52 @@ func openDB() *db.DB {
 	return database
 }
 
+// statusAliases maps the accepted status aliases (lowercase) to their
+// canonical storable values (db.validateTask only accepts todo, in_progress,
+// done, blocked).
+var statusAliases = map[string]string{
+	"pending":     "todo",
+	"in-progress": "in_progress",
+	"inprogress":  "in_progress",
+	"completed":   "done",
+}
+
+// canonicalStatus returns the canonical storable status for the given value:
+// the alias's canonical value for an alias, the lowercased value unchanged
+// for an already-canonical status, and "" for anything else ("all" included,
+// which is a list-only concept and must never be stored).
+func canonicalStatus(status string) string {
+	s := strings.ToLower(strings.TrimSpace(status))
+	switch s {
+	case "todo", "in_progress", "done", "blocked":
+		return s
+	}
+	return statusAliases[s]
+}
+
+// normalizeStatus validates the status via cliErrors.ValidateStatus (exiting
+// via fatal on error), maps it to its canonical storable value, and returns
+// it. An accepted value with no canonical mapping (only "all") is fatal.
+func normalizeStatus(status string) string {
+	if err := cliErrors.ValidateStatus(status); err != nil {
+		fatal(err)
+	}
+	canonical := canonicalStatus(status)
+	if canonical == "" {
+		fatal(cliErrors.ValidationError("status",
+			fmt.Sprintf("'%s' is not a valid task status", status),
+			"Valid statuses: todo, in_progress, done, blocked"))
+	}
+	return canonical
+}
+
 // validateOptionalTaskFields validates the already-extracted optional task
-// field values (title, milestone, actor, status), exiting via fatal on the
-// first invalid value. Empty values are treated as absent and are valid; the
+// field values (title, milestone, actor), exiting via fatal on the first
+// invalid value. Empty values are treated as absent and are valid; the
 // callers extract the fields with service.GetStringFieldTrim, which trims
-// each value and reports empty ones as absent. Validation runs in the order
-// title, milestone, actor, status. Shared by update and complete.
-func validateOptionalTaskFields(title, milestone, actor, status string) {
+// each value and reports empty ones as absent. Status is not validated here:
+// callers normalize it with normalizeStatus. Shared by update and complete.
+func validateOptionalTaskFields(title, milestone, actor string) {
 	if title != "" {
 		if err := cliErrors.ValidateTitle(title); err != nil {
 			fatal(err)
@@ -97,11 +138,24 @@ func validateOptionalTaskFields(title, milestone, actor, status string) {
 			fatal(err)
 		}
 	}
-	if status != "" {
-		if err := cliErrors.ValidateStatus(status); err != nil {
-			fatal(err)
-		}
+}
+
+// jsonDoc parses the shared JSON document argument: the -j/--json flag wins,
+// then args[0]; when both are empty, emptyDefault is used ("{}" for the
+// tolerant commands list and reset) or MissingArgumentError is returned (the
+// strict commands). ParseJSONFromArg handles the "-" stdin convention.
+func jsonDoc(flagVal string, args []string, emptyDefault string) (map[string]interface{}, error) {
+	arg := flagVal
+	if arg == "" && len(args) > 0 {
+		arg = args[0]
 	}
+	if arg == "" {
+		if emptyDefault == "" {
+			return nil, cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin")
+		}
+		arg = emptyDefault
+	}
+	return service.ParseJSONFromArg(arg)
 }
 
 // printTaskResult prints the shared success report for add and update.
@@ -114,6 +168,15 @@ func printTaskResult(verb string, task *db.Task) {
 	if task.Actor != "" {
 		fmt.Printf("  Actor: %s\n", task.Actor)
 	}
+	fmt.Printf("  Status: %s\n", task.Status)
+}
+
+// printStatusResult prints the short success report (ID, Title, Status only)
+// shared by block, complete, and unblock.
+func printStatusResult(verb string, task *db.Task) {
+	fmt.Println("Task " + verb + " successfully:")
+	fmt.Printf("  ID: %s\n", task.ID)
+	fmt.Printf("  Title: %s\n", task.Title)
 	fmt.Printf("  Status: %s\n", task.Status)
 }
 
@@ -144,19 +207,13 @@ func renderAnchorError(err error) string {
 	}
 
 	switch {
-	case anchor.IsNotFound(err):
-		var b []byte
-		b = append(b, "taskflow: no .taskflow anchor found\nsearched:\n"...)
-		for i, dir := range aerr.Chain {
-			if i == len(aerr.Chain)-1 {
-				// The chain from AnchorError ends at the filesystem root;
-				// the printer annotates the stop reason itself (AnchorError
-				// has no StopReason field).
-				b = append(b, fmt.Sprintf("  %s (filesystem root reached, no .taskflow)\n", dir)...)
-			} else {
-				b = append(b, fmt.Sprintf("  %s\n", dir)...)
-			}
-		}
+	case errors.Is(err, anchor.ErrNotFound):
+		// The chain from AnchorError ends at the filesystem root; the
+		// printer annotates the stop reason itself (AnchorError has no
+		// StopReason field).
+		var b strings.Builder
+		fmt.Fprint(&b, "taskflow: no .taskflow anchor found\nsearched:\n")
+		printChain(&b, aerr.Chain, "(filesystem root reached, no .taskflow)")
 		if len(aerr.Chain) == 1 && filepath.IsAbs(aerr.Chain[0]) {
 			// A not-found chain of length one with an absolute start dir means
 			// the walk started at the filesystem root: the launcher ran with
@@ -165,11 +222,11 @@ func renderAnchorError(err error) string {
 			// fallback such as "." when os.Getwd fails; the IsAbs check keeps
 			// the note off that case.) Print the actual start dir, portable
 			// across volume roots.
-			b = append(b, fmt.Sprintf("note: the search started at the filesystem root; the process that started taskflow ran with cwd=%s and no anchor can exist above it; fix the launcher's working directory or set TASKFLOW_DIR\n", aerr.Chain[0])...)
+			fmt.Fprintf(&b, "note: the search started at the filesystem root; the process that started taskflow ran with cwd=%s and no anchor can exist above it; fix the launcher's working directory or set TASKFLOW_DIR\n", aerr.Chain[0])
 		}
-		b = append(b, "remedy: run `taskflow init` in the project root (--target <path> shares one DB across checkouts)\n"...)
-		b = append(b, "or set TASKFLOW_DIR to override\n"...)
-		return string(b)
+		fmt.Fprint(&b, "remedy: run `taskflow init` in the project root (--target <path> shares one DB across checkouts)\n")
+		fmt.Fprint(&b, "or set TASKFLOW_DIR to override\n")
+		return b.String()
 
 	case aerr.Reason == anchor.ReasonMissingDB:
 		// The anchor resolved but the DB file is gone (deleted by hand, or a
@@ -177,7 +234,7 @@ func renderAnchorError(err error) string {
 		// carries the missing DB path here, set by db.DefaultDBPath.
 		return fmt.Sprintf("taskflow: %s is missing\nremedy: run `taskflow init` to create or repair the database\n", aerr.PointerPath)
 
-	case anchor.IsDanglingPointer(err):
+	case errors.Is(err, anchor.ErrDanglingPointer):
 		b := fmt.Sprintf("taskflow: %s is %s\n", aerr.PointerPath, pointerReasonText(aerr.Reason))
 		b += "remedy: run `taskflow init` to create or repair the database\n"
 		return b

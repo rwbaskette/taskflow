@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -19,15 +20,7 @@ var resetCmd = &cobra.Command{
   task reset-timedout -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		jsonArg := resetJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			jsonArg = "{}"
-		}
-
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		doc, err := jsonDoc(resetJSON, args, "{}")
 		if err != nil {
 			fatal(err)
 		}
@@ -38,7 +31,7 @@ var resetCmd = &cobra.Command{
 		}
 
 		if resetTimeoutMinutes <= 0 {
-			fatal(fmt.Errorf("timeout minutes must be a positive integer"))
+			fatal(errors.New("timeout minutes must be a positive integer"))
 		}
 
 		database := openDB()

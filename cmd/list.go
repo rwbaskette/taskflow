@@ -1,14 +1,16 @@
 package cmd
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/rwbaskette/taskflow/internal/db"
 	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
-	"github.com/rwbaskette/taskflow/internal/output"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
 
@@ -40,15 +42,7 @@ var listCmd = &cobra.Command{
   task list '{"id":"task-123"}'`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		jsonArg := listJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			jsonArg = "{}"
-		}
-
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		doc, err := jsonDoc(listJSON, args, "{}")
 		if err != nil {
 			fatal(err)
 		}
@@ -70,6 +64,9 @@ var listCmd = &cobra.Command{
 		if listFilterStatus != "" && lowerStatus != "all" {
 			if err := cliErrors.ValidateStatus(listFilterStatus); err != nil {
 				fatal(err)
+			}
+			if canonical := canonicalStatus(listFilterStatus); canonical != "" {
+				listStatusFilter = canonical
 			}
 		}
 		if err := cliErrors.ValidateMilestone(listFilterMilestone); err != nil {
@@ -104,23 +101,22 @@ var listCmd = &cobra.Command{
 		}
 
 		if listLimit < 0 {
-			fatal(fmt.Errorf("limit cannot be negative"))
+			fatal(errors.New("limit cannot be negative"))
 		}
 		if listOffset < 0 {
-			fatal(fmt.Errorf("offset cannot be negative"))
+			fatal(errors.New("offset cannot be negative"))
 		}
 
 		database := openDB()
 		defer database.Close()
 
 		if listFilterID != "" {
-			task, err := service.GetTask(database, listFilterID)
+			task, err := database.ReadTask(listFilterID)
 			if err != nil {
 				fatal(err)
 			}
-			renderer := output.NewTaskTableRenderer()
-			renderer.Render(&service.ListTaskResult{
-				Tasks:   []service.TaskItem{*task},
+			renderListResult(&service.ListTaskResult{
+				Tasks:   []service.TaskItem{service.TaskToItem(*task)},
 				Total:   1,
 				Limit:   1,
 				Offset:  0,
@@ -129,24 +125,62 @@ var listCmd = &cobra.Command{
 			return
 		}
 
-		filter := &service.ListTaskFilter{
+		dbFilter := db.TaskFilter{
 			Milestone: listFilterMilestone,
 			Status:    listStatusFilter,
 			Actor:     listFilterActor,
-			ID:        listFilterID,
-			SortBy:    listSortBy,
+			SortBy:    db.SortBy(listSortBy),
 			Limit:     listLimit,
 			Offset:    listOffset,
 		}
 
-		result, err := service.ListTasks(database, filter)
+		tasks, err := database.ListTasks(dbFilter)
 		if err != nil {
 			fatal(err)
 		}
 
-		renderer := output.NewTaskTableRenderer()
-		renderer.Render(result)
+		items := make([]service.TaskItem, 0, len(tasks))
+		for _, task := range tasks {
+			items = append(items, service.TaskToItem(task))
+		}
+
+		// Get the true total count of all matching records (ignoring
+		// limit/offset) so that pagination metadata is accurate. Limit and
+		// Offset are intentionally omitted — CountTasks ignores them, but we
+		// leave them zero for clarity.
+		total, err := database.CountTasks(db.TaskFilter{
+			Milestone: listFilterMilestone,
+			Status:    listStatusFilter,
+			Actor:     listFilterActor,
+		})
+		if err != nil {
+			fatal(err)
+		}
+
+		// Determine whether there are more results beyond the current page.
+		// There are more if the current page doesn't reach the end of the
+		// full set.
+		hasMore := listOffset+len(items) < total
+
+		renderListResult(&service.ListTaskResult{
+			Tasks:   items,
+			Total:   total,
+			Limit:   listLimit,
+			Offset:  listOffset,
+			HasMore: hasMore,
+		})
 	},
+}
+
+// renderListResult prints the list result as two-space indented JSON.
+func renderListResult(result *service.ListTaskResult) {
+	jsonData, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		fmt.Println("[]")
+		return
+	}
+
+	fmt.Println(string(jsonData))
 }
 
 func init() {

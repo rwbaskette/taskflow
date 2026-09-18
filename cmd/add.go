@@ -3,6 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/rwbaskette/taskflow/internal/db"
 	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
@@ -21,15 +22,7 @@ var addCmd = &cobra.Command{
 		database := openDB()
 		defer database.Close()
 
-		jsonArg := addJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			fatal(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-		}
-
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		doc, err := jsonDoc(addJSON, args, "")
 		if err != nil {
 			fatal(err)
 		}
@@ -53,20 +46,20 @@ var addCmd = &cobra.Command{
 			fatal(cliErrors.MissingArgumentError("description", "description is required in JSON document"))
 		}
 
-		input := &service.AddTaskInput{
+		task := &db.Task{
 			ID:          id,
 			Milestone:   milestone,
 			Title:       title,
 			Description: description,
+			Status:      "todo",
 			Actor:       actor,
 		}
 
-		result, err := service.AddTask(database, input)
-		if err != nil {
+		if err := database.CreateTask(task); err != nil {
 			fatal(err)
 		}
 
-		printTaskResult("added", result)
+		printTaskResult("added", task)
 	},
 }
 

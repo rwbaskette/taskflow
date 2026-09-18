@@ -15,26 +15,17 @@ const (
 	// Validation errors
 	ErrInvalidArgument  ErrorCode = "INVALID_ARGUMENT"
 	ErrMissingArgument  ErrorCode = "MISSING_ARGUMENT"
-	ErrInvalidFormat    ErrorCode = "INVALID_FORMAT"
 	ErrResourceNotFound ErrorCode = "RESOURCE_NOT_FOUND"
-	ErrResourceExists   ErrorCode = "RESOURCE_EXISTS"
-	ErrPermissionDenied ErrorCode = "PERMISSION_DENIED"
 
 	// System errors
-	ErrDatabaseError           ErrorCode = "DATABASE_ERROR"
-	ErrFileNotFound            ErrorCode = "FILE_NOT_FOUND"
-	ErrConfiguration           ErrorCode = "CONFIGURATION_ERROR"
 	ErrUnexpected              ErrorCode = "UNEXPECTED_ERROR"
 	ErrInvalidStatusTransition ErrorCode = "INVALID_STATUS_TRANSITION"
 )
 
 // CLIError represents a structured CLI error with context.
 type CLIError struct {
-	Code       ErrorCode
-	Message    string
-	Details    string
-	Suggestion string
-	Cause      error
+	Code    ErrorCode
+	Message string
 
 	// Task carries structured context for INVALID_STATUS_TRANSITION errors.
 	// Recognized keys: "id", "current_status".
@@ -52,11 +43,6 @@ func (e *CLIError) Error() string {
 	return e.Message
 }
 
-// Unwrap returns the underlying cause of the error.
-func (e *CLIError) Unwrap() error {
-	return e.Cause
-}
-
 // ValidationError creates a validation error with optional suggestion.
 func ValidationError(field, message, suggestion string) *CLIError {
 	suggestionMsg := ""
@@ -64,30 +50,24 @@ func ValidationError(field, message, suggestion string) *CLIError {
 		suggestionMsg = fmt.Sprintf("\nSuggestion: %s", suggestion)
 	}
 	return &CLIError{
-		Code:       ErrInvalidArgument,
-		Message:    fmt.Sprintf("Invalid value for %s: %s%s", field, message, suggestionMsg),
-		Details:    field,
-		Suggestion: suggestion,
+		Code:    ErrInvalidArgument,
+		Message: fmt.Sprintf("Invalid value for %s: %s%s", field, message, suggestionMsg),
 	}
 }
 
 // MissingArgumentError creates an error for missing required arguments.
 func MissingArgumentError(argName, usage string) *CLIError {
 	return &CLIError{
-		Code:       ErrMissingArgument,
-		Message:    fmt.Sprintf("Missing required argument: %s\nUsage: %s", argName, usage),
-		Details:    argName,
-		Suggestion: "Run 'task <command> --help' for usage information",
+		Code:    ErrMissingArgument,
+		Message: fmt.Sprintf("Missing required argument: %s\nUsage: %s", argName, usage),
 	}
 }
 
 // ResourceNotFoundError creates an error for missing resources.
 func ResourceNotFoundError(resourceType, resourceID string) *CLIError {
 	return &CLIError{
-		Code:       ErrResourceNotFound,
-		Message:    fmt.Sprintf("No %s found with id '%s'", resourceType, resourceID),
-		Details:    resourceID,
-		Suggestion: "Use 'task list' to see available tasks",
+		Code:    ErrResourceNotFound,
+		Message: fmt.Sprintf("No %s found with id '%s'", resourceType, resourceID),
 	}
 }
 
@@ -101,7 +81,6 @@ func InvalidStatusTransitionError(taskID, currentStatus string) *CLIError {
 			"id":             taskID,
 			"current_status": currentStatus,
 		},
-		Suggestion: "Use 'task list --status blocked' to find blocked tasks",
 	}
 }
 
@@ -183,7 +162,6 @@ func MissingIDError() *CLIError {
 		Code:          ErrMissingArgument,
 		Message:       "The required parameter 'id' is missing. Please provide a valid task identifier.",
 		MissingParams: []string{"id"},
-		Suggestion:    "Provide a valid task ID in the JSON document",
 	}
 }
 
@@ -193,7 +171,6 @@ func EmptyIDError() *CLIError {
 		Code:          ErrInvalidArgument,
 		Message:       "The 'id' parameter must be a non-empty string.",
 		InvalidParams: map[string]interface{}{"id": ""},
-		Suggestion:    "Provide a non-empty task ID in the JSON document",
 	}
 }
 
@@ -203,7 +180,6 @@ func NonStringIDError(actualValue interface{}) *CLIError {
 		Code:          ErrInvalidArgument,
 		Message:       "The 'id' parameter must be a string.",
 		InvalidParams: map[string]interface{}{"id": actualValue},
-		Suggestion:    "Provide a string value for the 'id' parameter",
 	}
 }
 
@@ -218,8 +194,6 @@ var validStatusAliases = map[string]bool{
 	"in-progress": true,
 	"inprogress":  true,
 	"completed":   true,
-	"timed-out":   true,
-	"timedout":    true,
 }
 
 // ValidateStatus checks if a status value is valid.
@@ -240,7 +214,7 @@ func ValidateStatus(status string) error {
 	return ValidationError(
 		"status",
 		fmt.Sprintf("'%s' is not valid", status),
-		fmt.Sprintf("Valid statuses: %s (or aliases: pending, in-progress, completed, timed-out)",
+		fmt.Sprintf("Valid statuses: %s (or aliases: pending, in-progress, completed)",
 			strings.Join([]string{"todo", "in_progress", "done", "blocked", "all"}, ", ")),
 	)
 }

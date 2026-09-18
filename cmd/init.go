@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,10 +93,10 @@ func runInit(cmd *cobra.Command, args []string) {
 
 	if aerr != nil {
 		switch {
-		case anchor.IsNotFound(aerr):
+		case errors.Is(aerr, anchor.ErrNotFound):
 			// (d) No anchor found.
 			runInitFresh(start)
-		case anchor.IsMalformedPointer(aerr) || anchor.IsWrongTargetType(aerr):
+		case errors.Is(aerr, anchor.ErrMalformedPointer) || errors.Is(aerr, anchor.ErrWrongTargetType):
 			// Malformed or wrong-type pointer. If it sits above the cwd and
 			// --force is set, a shadow directory anchor at the cwd is the
 			// remedy (design 4c); otherwise hard error, file untouched.
@@ -130,6 +131,16 @@ func startDir(a *anchor.Anchor, aerr *anchor.AnchorError) string {
 	}
 	cwd, _ := os.Getwd()
 	return cwd
+}
+
+// refuseProtectedDir exits 2 when an anchor must not be created at start (a
+// protected directory) without --force. Shared by the fresh and --target
+// branches of step (d).
+func refuseProtectedDir(start string) {
+	if anchor.IsProtectedDir(start) && !initForce {
+		fmt.Fprintln(os.Stderr, "refusing to create an anchor here; pass --force to override")
+		os.Exit(2)
+	}
 }
 
 // runInitExisting handles step (c): an anchor was found. Init never creates a
@@ -243,10 +254,7 @@ func runInitFresh(start string) {
 	}
 
 	// Default: refuse protected directories without --force.
-	if anchor.IsProtectedDir(start) && !initForce {
-		fmt.Fprintln(os.Stderr, "refusing to create an anchor here; pass --force to override")
-		os.Exit(2)
-	}
+	refuseProtectedDir(start)
 
 	createShadowAnchor(start, "")
 }
@@ -257,10 +265,7 @@ func runInitFresh(start string) {
 func runInitTarget(start, target string) {
 	// The protected-dir guard also applies here: writing a pointer at $HOME
 	// or the filesystem root is the same stray-anchor hazard.
-	if anchor.IsProtectedDir(start) && !initForce {
-		fmt.Fprintln(os.Stderr, "refusing to create an anchor here; pass --force to override")
-		os.Exit(2)
-	}
+	refuseProtectedDir(start)
 
 	// Validate the target kind BEFORE writing anything.
 	base := filepath.Base(target)
@@ -292,8 +297,7 @@ func runInitTarget(start, target string) {
 	pointerPath := filepath.Join(start, ".taskflow")
 	line := "database: " + target + "\n"
 	if err := os.WriteFile(pointerPath, []byte(line), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "taskflow: %v\n", err)
-		os.Exit(2)
+		fatal2(err)
 	}
 
 	// Attempt DB creation at the resolved target.
@@ -325,8 +329,7 @@ func runInitTarget(start, target string) {
 func createShadowAnchor(dir, note string) {
 	database, err := db.NewDB(filepath.Join(dir, ".taskflow", "tasks.db"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "taskflow: %v\n", err)
-		os.Exit(2)
+		fatal2(err)
 	}
 	dbPath := database.Path()
 	_ = database.Close()

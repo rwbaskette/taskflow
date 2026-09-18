@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -24,15 +23,7 @@ var unblockCmd = &cobra.Command{
 		database := openDB()
 		defer database.Close()
 
-		jsonArg := unblockJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			fatal(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-		}
-
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		doc, err := jsonDoc(unblockJSON, args, "")
 		if err != nil {
 			fatal(err)
 		}
@@ -63,10 +54,7 @@ var unblockCmd = &cobra.Command{
 			fatal(err)
 		}
 
-		fmt.Println("Task unblocked successfully:")
-		fmt.Printf("  ID: %s\n", result.ID)
-		fmt.Printf("  Title: %s\n", result.Title)
-		fmt.Printf("  Status: %s\n", result.Status)
+		printStatusResult("unblocked", result)
 	},
 }
 

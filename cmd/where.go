@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -65,7 +67,7 @@ func runWhere(cmd *cobra.Command, args []string) {
 			fmt.Printf("pointer status: %s\n", a.PointerStatus)
 		}
 		fmt.Println("search chain:")
-		printChain(a.Chain, "(anchor found)")
+		printChain(os.Stdout, a.Chain, "(anchor found)")
 
 		// A dangling pointer resolves but no DB exists: exit 2 with the
 		// pointer-error contract so where diagnoses stray latches.
@@ -96,35 +98,33 @@ func runWhere(cmd *cobra.Command, args []string) {
 	}
 
 	// Failure: print the chain and status info to stdout, then the section 6
-	// contract to stderr, exit 2.
+	// contract to stderr, exit 2. The pointer-specific errors print pointer
+	// details; everything else (not-found today) prints the plain chain.
 	switch {
-	case anchor.IsNotFound(aerr):
-		fmt.Println("anchor: none")
-		fmt.Println("search chain:")
-		printChain(aerr.Chain, "(filesystem root reached, no .taskflow)")
-	case anchor.IsMalformedPointer(aerr) || anchor.IsWrongTargetType(aerr):
+	case errors.Is(aerr, anchor.ErrMalformedPointer) || errors.Is(aerr, anchor.ErrWrongTargetType):
 		fmt.Println("anchor: pointer")
 		fmt.Printf("anchor path: %s\n", filepath.Dir(aerr.PointerPath))
 		fmt.Printf("pointer status: %s\n", aerr.Reason)
 		fmt.Println("search chain:")
-		printChain(aerr.Chain, "(pointer error)")
+		printChain(os.Stdout, aerr.Chain, "(pointer error)")
 	default:
 		fmt.Println("anchor: none")
 		fmt.Println("search chain:")
-		printChain(aerr.Chain, "(filesystem root reached, no .taskflow)")
+		printChain(os.Stdout, aerr.Chain, "(filesystem root reached, no .taskflow)")
 	}
 	fmt.Fprint(os.Stderr, renderAnchorError(aerr))
 	os.Exit(2)
 }
 
 // printChain renders the walked directories, one per line, annotating the
-// final entry with the stop reason.
-func printChain(chain []string, lastNote string) {
+// final entry with the stop reason. It writes to w: the command's stdout in
+// runWhere, and a strings.Builder in renderAnchorError (root.go).
+func printChain(w io.Writer, chain []string, lastNote string) {
 	for i, dir := range chain {
 		if i == len(chain)-1 {
-			fmt.Printf("  %s %s\n", dir, lastNote)
+			fmt.Fprintf(w, "  %s %s\n", dir, lastNote)
 		} else {
-			fmt.Printf("  %s\n", dir)
+			fmt.Fprintf(w, "  %s\n", dir)
 		}
 	}
 }

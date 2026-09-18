@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
@@ -23,15 +21,7 @@ var blockCmd = &cobra.Command{
 		database := openDB()
 		defer database.Close()
 
-		jsonArg := blockJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			fatal(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-		}
-
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		doc, err := jsonDoc(blockJSON, args, "")
 		if err != nil {
 			fatal(err)
 		}
@@ -57,10 +47,7 @@ var blockCmd = &cobra.Command{
 			fatal(err)
 		}
 
-		fmt.Printf("Task blocked successfully:\n")
-		fmt.Printf("  ID: %s\n", result.ID)
-		fmt.Printf("  Title: %s\n", result.Title)
-		fmt.Printf("  Status: %s\n", result.Status)
+		printStatusResult("blocked", result)
 	},
 }
 

@@ -75,11 +75,6 @@ func GetNumberField(doc map[string]interface{}, field string) (float64, bool) {
 	return getField[float64](doc, field)
 }
 
-// GetBooleanField returns a boolean field value.
-func GetBooleanField(doc map[string]interface{}, field string) (bool, bool) {
-	return getField[bool](doc, field)
-}
-
 // GetIDField extracts the required 'id' parameter from a parsed JSON
 // document: a missing field yields MissingIDError, a non-string value yields
 // NonStringIDError, a value that trims to empty yields EmptyIDError, and

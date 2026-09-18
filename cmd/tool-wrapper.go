@@ -21,22 +21,13 @@ func cleanAndValidatePath(outputPath string, allowedDir string) (string, error) 
 		return "", fmt.Errorf("failed to resolve allowed directory: %w", err)
 	}
 
-	// If output path is absolute, clean and validate directly
-	if filepath.IsAbs(outputPath) {
-		cleaned := filepath.Clean(outputPath)
-		absCleaned, err := filepath.Abs(cleaned)
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve output path: %w", err)
-		}
-		// Check if path tries to escape the allowed directory
-		if !strings.HasPrefix(absCleaned, absAllowed+string(filepath.Separator)) && absCleaned != absAllowed {
-			return "", fmt.Errorf("path traversal detected: %s is not within %s", outputPath, allowedDir)
-		}
-		return cleaned, nil
+	// For relative output paths, join with the allowed dir first; absolute
+	// paths are validated as-is. (filepath.Abs never fails on an absolute
+	// path, so the old separate abs-branch add-on call was a no-op.)
+	joined := outputPath
+	if !filepath.IsAbs(outputPath) {
+		joined = filepath.Join(absAllowed, outputPath)
 	}
-
-	// For relative paths, join with allowed dir, then clean and validate
-	joined := filepath.Join(absAllowed, outputPath)
 	cleaned := filepath.Clean(joined)
 
 	// Verify the cleaned path is still within allowed dir

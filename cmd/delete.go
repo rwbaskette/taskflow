@@ -20,15 +20,7 @@ var deleteCmd = &cobra.Command{
   task delete -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		jsonArg := deleteJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			fatal(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-		}
-
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		doc, err := jsonDoc(deleteJSON, args, "")
 		if err != nil {
 			fatal(err)
 		}

@@ -21,15 +21,7 @@ var updateCmd = &cobra.Command{
 		database := openDB()
 		defer database.Close()
 
-		jsonArg := updateJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			fatal(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-		}
-
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		doc, err := jsonDoc(updateJSON, args, "")
 		if err != nil {
 			fatal(err)
 		}
@@ -45,7 +37,11 @@ var updateCmd = &cobra.Command{
 			fatal(err)
 		}
 
-		validateOptionalTaskFields(title, milestone, actor, status)
+		validateOptionalTaskFields(title, milestone, actor)
+
+		if hasStatus {
+			status = normalizeStatus(status)
+		}
 
 		if !hasTitle && !hasDesc && !hasStatus && !hasMilestone && !hasActor {
 			fatal(cliErrors.MissingArgumentError("update field", "at least one of title, description, status, milestone, or actor is required in JSON"))

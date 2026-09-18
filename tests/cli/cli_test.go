@@ -356,6 +356,35 @@ func TestUpdate_Status(t *testing.T) {
 	assertContains(t, r.combined, "in_progress", "new status")
 }
 
+// Regression for the status-alias pipeline bug: ValidateStatus advertises
+// aliases ("completed", "pending", "timed-out", ...) as valid input, but the
+// db layer only stores canonical statuses (todo, in_progress, done, blocked).
+// Before the fix, an alias passed CLI validation and then failed at the
+// database as UNEXPECTED_ERROR (exit 1). The contract: an accepted alias
+// must update the task and store the canonical value.
+func TestUpdate_StatusAlias(t *testing.T) {
+	dir := tempWorkdir(t)
+	addTask(t, dir, `{"id":"alias-1","title":"Alias Task","milestone":"v1","actor":"tester","description":"d"}`)
+
+	r := runCLI(t, dir, "update", `{"id":"alias-1","status":"completed"}`)
+	assertExitZero(t, r, "update with status alias 'completed'")
+	assertContains(t, r.combined, "Task updated successfully", "update success")
+	assertContains(t, r.combined, "Status: done", "canonical status stored, not the alias")
+	assertNotContains(t, r.combined, "UNEXPECTED_ERROR", "db must not reject a status the CLI accepted")
+}
+
+// "all" is a list-only concept: update must reject it at validation, not
+// pass it to the db as UNEXPECTED_ERROR.
+func TestUpdate_StatusAllRejected(t *testing.T) {
+	dir := tempWorkdir(t)
+	addTask(t, dir, `{"id":"alias-2","title":"T","milestone":"v1","actor":"tester","description":"d"}`)
+
+	r := runCLI(t, dir, "update", `{"id":"alias-2","status":"all"}`)
+	assertExitNonZero(t, r, "'all' is not a storable status")
+	assertContains(t, r.combined, "is not a valid task status", "validation error")
+	assertNotContains(t, r.combined, "UNEXPECTED_ERROR", "rejected at validation, not at the db")
+}
+
 // --------------------------------------------------------------------------
 // Complete command tests (replaces test-complete.sh)
 // --------------------------------------------------------------------------
@@ -622,6 +651,45 @@ func TestList_FilterByStatus(t *testing.T) {
 
 	r := runCLI(t, dir, "list", `{"status":"todo"}`)
 	assertExitZero(t, r, "filter by status")
+}
+
+// Read-side regression for the same status-alias bug: list with an alias
+// passed validation, but the db filter exact-matches canonical values, so
+// the alias silently returned zero rows (exit 0, "tasks": []) — the worst
+// failure mode because nothing reports it. The contract: the 'pending'
+// alias must match todo tasks.
+func TestList_StatusAliasPending(t *testing.T) {
+	dir := tempWorkdir(t)
+	seedListTasks(t, dir) // three tasks in status "todo"
+
+	r := runCLI(t, dir, "list", `{"status":"pending"}`)
+	assertExitZero(t, r, "list with status alias 'pending'")
+	assertContains(t, r.combined, `"ID": "list-1"`, "todo tasks match the 'pending' alias")
+	assertContains(t, r.combined, `"Status": "todo"`, "matched tasks show canonical status")
+}
+
+// The alias fix removed the unstorable timed-out aliases: the CLI must
+// reject them with a validation error, not silently match zero rows.
+func TestList_StatusTimedOutRejected(t *testing.T) {
+	dir := tempWorkdir(t)
+	seedListTasks(t, dir)
+
+	r := runCLI(t, dir, "list", `{"status":"timed-out"}`)
+	assertExitNonZero(t, r, "timed-out is not a storable status")
+	assertContains(t, r.combined, "not valid", "validation error, not a silent empty result")
+}
+
+// The list-by-id branch returns a single-task envelope. Regression coverage
+// for the path rewritten when the service pass-through layer was dissolved.
+func TestList_ByID(t *testing.T) {
+	dir := tempWorkdir(t)
+	seedListTasks(t, dir)
+
+	r := runCLI(t, dir, "list", `{"id":"list-2"}`)
+	assertExitZero(t, r, "list by id")
+	assertContains(t, r.combined, `"ID": "list-2"`, "the requested task")
+	assertContains(t, r.combined, `"total": 1`, "single-task envelope total")
+	assertNotContains(t, r.combined, "list-1", "other tasks are not included")
 }
 
 func TestList_CombinedMilestoneAndActor(t *testing.T) {

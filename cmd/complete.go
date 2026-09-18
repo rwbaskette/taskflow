@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	cliErrors "github.com/rwbaskette/taskflow/internal/errors"
@@ -23,15 +21,7 @@ var completeCmd = &cobra.Command{
 		database := openDB()
 		defer database.Close()
 
-		jsonArg := completeJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			fatal(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-		}
-
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		doc, err := jsonDoc(completeJSON, args, "")
 		if err != nil {
 			fatal(err)
 		}
@@ -39,7 +29,7 @@ var completeCmd = &cobra.Command{
 		id, _ := service.GetStringFieldTrim(doc, "id")
 		title, _ := service.GetStringFieldTrim(doc, "title")
 		description, _ := service.GetStringFieldTrim(doc, "description")
-		status, _ := service.GetStringFieldTrim(doc, "status")
+		status, hasStatus := service.GetStringFieldTrim(doc, "status")
 		milestone, _ := service.GetStringFieldTrim(doc, "milestone")
 		actor, _ := service.GetStringFieldTrim(doc, "actor")
 
@@ -47,9 +37,17 @@ var completeCmd = &cobra.Command{
 			fatal(err)
 		}
 
-		validateOptionalTaskFields(title, milestone, actor, status)
+		validateOptionalTaskFields(title, milestone, actor)
 
-		input := &service.CompleteTaskInput{
+		if hasStatus {
+			status = normalizeStatus(status)
+		}
+		// The completion status defaults to "done" when no override is given.
+		if status == "" {
+			status = "done"
+		}
+
+		input := &service.UpdateTaskInput{
 			ID:          id,
 			Title:       title,
 			Description: description,
@@ -58,15 +56,12 @@ var completeCmd = &cobra.Command{
 			Actor:       actor,
 		}
 
-		result, err := service.CompleteTask(database, input)
+		result, err := service.UpdateTask(database, input)
 		if err != nil {
 			fatal(err)
 		}
 
-		fmt.Printf("Task completed successfully:\n")
-		fmt.Printf("  ID: %s\n", result.ID)
-		fmt.Printf("  Title: %s\n", result.Title)
-		fmt.Printf("  Status: %s\n", result.Status)
+		printStatusResult("completed", result)
 	},
 }
 

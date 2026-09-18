@@ -705,9 +705,6 @@ func TestAnchorError_ErrorAndUnwrapping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve on dangling pointer returned error %v, want nil", err)
 	}
-	if !IsDanglingPointer(ErrDanglingPointer) {
-		t.Error("IsDanglingPointer does not detect ErrDanglingPointer")
-	}
 	if a.PointerStatus != StatusDangling {
 		t.Errorf("PointerStatus = %q, want %q", a.PointerStatus, StatusDangling)
 	}

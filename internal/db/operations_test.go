@@ -3,6 +3,7 @@ package db
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -596,16 +597,6 @@ func TestCountTasks(t *testing.T) {
 		}
 	})
 
-	t.Run("count with sprint filter", func(t *testing.T) {
-		count, err := db.CountTasks(TaskFilter{Sprint: "s1"})
-		if err != nil {
-			t.Fatalf("CountTasks failed: %v", err)
-		}
-		if count != 2 {
-			t.Errorf("expected count=2 for sprint s1, got %d", count)
-		}
-	})
-
 	t.Run("count with id filter", func(t *testing.T) {
 		count, err := db.CountTasks(TaskFilter{ID: "task-3"})
 		if err != nil {
@@ -925,4 +916,43 @@ func TestUnblockTask(t *testing.T) {
 			t.Errorf("expected ErrNilDB, got %v", err)
 		}
 	})
+}
+
+// TestCorruptTimestampTask pins the scanTask parse-error behavior: a row
+// whose created/last_updated columns are not RFC3339 must surface as an
+// error from ReadTask and SoftDeleteTask, never as a zero-time task. The
+// corrupt rows fill every nullable column so the row-level Scan succeeds
+// and the failure lands in the timestamp/blocked_by parse, not the scan.
+func TestCorruptTimestampTask(t *testing.T) {
+	database := setupTestDB(t)
+	defer teardownTestDB(t, database)
+
+	_, err := database.conn.Exec(
+		`INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, created, last_updated)
+		 VALUES ('corrupt-1', 'm', 's', 'Corrupt', 'd', 'todo', 'a', 'not-a-time', 'not-a-time')`)
+	if err != nil {
+		t.Fatalf("failed to insert corrupt row: %v", err)
+	}
+
+	if _, err := database.ReadTask("corrupt-1"); !strings.Contains(err.Error(), "parse created") {
+		t.Errorf("ReadTask: expected a created-timestamp parse error, got %v", err)
+	}
+	if _, err := database.SoftDeleteTask("corrupt-1"); !strings.Contains(err.Error(), "parse created") {
+		t.Errorf("SoftDeleteTask: expected a created-timestamp parse error, got %v", err)
+	}
+
+	// Corrupt blocked_by with valid timestamps must also surface as an
+	// error: only SQL NULL or the empty string mean "no blockers".
+	_, err = database.conn.Exec(
+		`INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated)
+		 VALUES ('corrupt-2', 'm', 's', 'Corrupt blocked_by', 'd', 'todo', 'a', 'not-json', ?, ?)`,
+		time.Now().UTC().Format(time.RFC3339),
+		time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert corrupt blocked_by row: %v", err)
+	}
+
+	if _, err := database.ReadTask("corrupt-2"); !strings.Contains(err.Error(), "parse blocked_by") {
+		t.Errorf("ReadTask: expected a blocked_by parse error, got %v", err)
+	}
 }

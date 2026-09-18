@@ -1,7 +1,6 @@
 package errors
 
 import (
-	"errors"
 	"reflect"
 	"testing"
 )
@@ -44,7 +43,8 @@ func TestValidateStatus(t *testing.T) {
 		{"valid in-progress", "in-progress", false, ""},
 		{"valid completed", "completed", false, ""},
 		{"valid blocked", "blocked", false, ""},
-		{"valid timed-out", "timed-out", false, ""},
+		{"timed-out is invalid", "timed-out", true,
+			"Invalid value for status: 'timed-out' is not valid\nSuggestion: Valid statuses: todo, in_progress, done, blocked, all (or aliases: pending, in-progress, completed)"},
 		{"valid uppercase", "PENDING", false, ""},
 		{"valid mixed case", "Completed", false, ""},
 		{"valid padded", "  done  ", false, ""},
@@ -56,11 +56,11 @@ func TestValidateStatus(t *testing.T) {
 		{"padded lowercase all", " all ", false, ""},
 		{"padded uppercase all", " ALL ", false, ""},
 		{"invalid status", "invalid", true,
-			"Invalid value for status: 'invalid' is not valid\nSuggestion: Valid statuses: todo, in_progress, done, blocked, all (or aliases: pending, in-progress, completed, timed-out)"},
+			"Invalid value for status: 'invalid' is not valid\nSuggestion: Valid statuses: todo, in_progress, done, blocked, all (or aliases: pending, in-progress, completed)"},
 		{"invalid empty string", "", true,
-			"Invalid value for status: '' is not valid\nSuggestion: Valid statuses: todo, in_progress, done, blocked, all (or aliases: pending, in-progress, completed, timed-out)"},
+			"Invalid value for status: '' is not valid\nSuggestion: Valid statuses: todo, in_progress, done, blocked, all (or aliases: pending, in-progress, completed)"},
 		{"invalid random", "random-status", true,
-			"Invalid value for status: 'random-status' is not valid\nSuggestion: Valid statuses: todo, in_progress, done, blocked, all (or aliases: pending, in-progress, completed, timed-out)"},
+			"Invalid value for status: 'random-status' is not valid\nSuggestion: Valid statuses: todo, in_progress, done, blocked, all (or aliases: pending, in-progress, completed)"},
 	}
 
 	for _, tt := range tests {
@@ -154,19 +154,6 @@ func TestCLIError(t *testing.T) {
 			t.Errorf("Error() = %v, want %v", err.Error(), "test error")
 		}
 	})
-
-	// Test Unwrap
-	t.Run("unwrap returns cause", func(t *testing.T) {
-		cause := errors.New("cause error")
-		err := &CLIError{
-			Code:    ErrDatabaseError,
-			Message: "test error",
-			Cause:   cause,
-		}
-		if err.Unwrap() != cause {
-			t.Errorf("Unwrap() = %v, want %v", err.Unwrap(), cause)
-		}
-	})
 }
 
 func TestValidationError(t *testing.T) {
@@ -203,12 +190,6 @@ func TestValidationError(t *testing.T) {
 			if err.Error() != tt.wantMsg {
 				t.Errorf("Error() = %q, want %q", err.Error(), tt.wantMsg)
 			}
-			if err.Details != tt.field {
-				t.Errorf("Details = %v, want %v", err.Details, tt.field)
-			}
-			if err.Suggestion != tt.suggestion {
-				t.Errorf("Suggestion = %v, want %v", err.Suggestion, tt.suggestion)
-			}
 		})
 	}
 }
@@ -218,9 +199,6 @@ func TestMissingArgumentError(t *testing.T) {
 
 	if err.Code != ErrMissingArgument {
 		t.Errorf("Code = %v, want %v", err.Code, ErrMissingArgument)
-	}
-	if err.Details != "title" {
-		t.Errorf("Details = %v, want %v", err.Details, "title")
 	}
 	wantMsg := "Missing required argument: title\nUsage: task add [title]"
 	if err.Error() != wantMsg {
@@ -233,9 +211,6 @@ func TestResourceNotFoundError(t *testing.T) {
 
 	if err.Code != ErrResourceNotFound {
 		t.Errorf("Code = %v, want %v", err.Code, ErrResourceNotFound)
-	}
-	if err.Details != "123" {
-		t.Errorf("Details = %v, want %v", err.Details, "123")
 	}
 	wantMsg := "No task found with id '123'"
 	if err.Error() != wantMsg {
@@ -269,9 +244,6 @@ func TestInvalidStatusTransitionError(t *testing.T) {
 			if !reflect.DeepEqual(err.Task, wantTask) {
 				t.Errorf("Task = %v, want %v", err.Task, wantTask)
 			}
-			if err.Suggestion != "Use 'task list --status blocked' to find blocked tasks" {
-				t.Errorf("Suggestion = %q, want %q", err.Suggestion, "Use 'task list --status blocked' to find blocked tasks")
-			}
 		})
 	}
 }
@@ -288,9 +260,6 @@ func TestIDErrorConstructors(t *testing.T) {
 		}
 		if !reflect.DeepEqual(err.MissingParams, []string{"id"}) {
 			t.Errorf("MissingParams = %v, want [id]", err.MissingParams)
-		}
-		if err.Suggestion != "Provide a valid task ID in the JSON document" {
-			t.Errorf("Suggestion = %q", err.Suggestion)
 		}
 	})
 
@@ -343,24 +312,4 @@ func TestIDErrorConstructors(t *testing.T) {
 // in-process: HandleError calls formatCLIErrorAsJSON, which calls os.Exit(1).
 func TestHandleErrorNil(t *testing.T) {
 	HandleError(nil) // must return without exiting
-}
-
-// TestCLIErrorAsError verifies the concrete type behaves as a standard error
-// usable with errors.Is/As and that Unwrap yields nil when no cause is set.
-func TestCLIErrorAsError(t *testing.T) {
-	cause := errors.New("db down")
-	err := &CLIError{Code: ErrDatabaseError, Message: "query failed", Cause: cause}
-
-	var target *CLIError
-	if !errors.As(err, &target) {
-		t.Error("errors.As(*CLIError) = false, want true")
-	}
-	if !errors.Is(err, cause) {
-		t.Error("errors.Is(err, cause) = false, want true via Unwrap")
-	}
-
-	noCause := &CLIError{Code: ErrUnexpected, Message: "boom"}
-	if got := errors.Unwrap(noCause); got != nil {
-		t.Errorf("Unwrap() without Cause = %v, want nil", got)
-	}
 }
