@@ -142,12 +142,7 @@ func BlockTask(database *db.DB, id, reason string) (*db.Task, error) {
 // guard as defense-in-depth against race conditions, and the returned task
 // reflects the true stored state.
 func UnblockTask(database *db.DB, id, description string) (*db.Task, error) {
-	var newDescription *string
-	if description != "" {
-		newDescription = &description
-	}
-
-	task, err := database.UnblockTask(id, newDescription)
+	task, err := database.UnblockTask(id, description)
 	if err != nil {
 		var notFound *db.TaskNotFoundError
 		if errors.As(err, &notFound) {

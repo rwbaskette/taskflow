@@ -967,7 +967,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by title
-	tasks, err := cfg.DB.ListTasks(db.TaskFilter{SortBy: db.SortBy("title")})
+	tasks, err := cfg.DB.ListTasks(db.TaskFilter{SortBy: "title"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by title failed: %v", err)
 	}
@@ -982,7 +982,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by actor
-	tasks, err = cfg.DB.ListTasks(db.TaskFilter{SortBy: db.SortBy("actor")})
+	tasks, err = cfg.DB.ListTasks(db.TaskFilter{SortBy: "actor"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by actor failed: %v", err)
 	}
@@ -991,7 +991,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by status
-	tasks, err = cfg.DB.ListTasks(db.TaskFilter{SortBy: db.SortBy("status")})
+	tasks, err = cfg.DB.ListTasks(db.TaskFilter{SortBy: "status"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by status failed: %v", err)
 	}
@@ -1000,7 +1000,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by milestone
-	tasks, err = cfg.DB.ListTasks(db.TaskFilter{SortBy: db.SortBy("milestone")})
+	tasks, err = cfg.DB.ListTasks(db.TaskFilter{SortBy: "milestone"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by milestone failed: %v", err)
 	}
@@ -1009,7 +1009,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by id
-	tasks, err = cfg.DB.ListTasks(db.TaskFilter{SortBy: db.SortBy("id")})
+	tasks, err = cfg.DB.ListTasks(db.TaskFilter{SortBy: "id"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by id failed: %v", err)
 	}
@@ -1021,7 +1021,7 @@ func TestListTasksSortBy(t *testing.T) {
 	}
 
 	// Test sort by description
-	tasks, err = cfg.DB.ListTasks(db.TaskFilter{SortBy: db.SortBy("description")})
+	tasks, err = cfg.DB.ListTasks(db.TaskFilter{SortBy: "description"})
 	if err != nil {
 		t.Fatalf("ListTasks sort by description failed: %v", err)
 	}

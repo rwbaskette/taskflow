@@ -97,7 +97,7 @@ echo "== building taskflow binary =="
 # ---------------------------------------------------------------------------
 echo "== help / version =="
 assert_ok "--help exits 0" '.' --help
-assert_ok "--version exits 0" 'Task CLI version:' --version
+assert_ok "--version exits 0" 'taskflow version' --version
 assert_ok "version exits 0" 'taskflow version' version
 
 # ---------------------------------------------------------------------------

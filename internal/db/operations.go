@@ -24,19 +24,39 @@ type Task struct {
 	LastUpdated time.Time `json:"last_updated"`
 }
 
-// SortBy defines the field to sort by
-type SortBy string
+// ValidSortKeys are the canonical sort keys accepted by TaskFilter.SortBy.
+var ValidSortKeys = []string{
+	"status",
+	"milestone",
+	"created",
+	"updated",
+	"id",
+	"title",
+	"description",
+	"actor",
+}
 
-const (
-	SortByStatus      SortBy = "status"
-	SortByMilestone   SortBy = "milestone"
-	SortByCreated     SortBy = "created"
-	SortByUpdated     SortBy = "updated"
-	SortByID          SortBy = "id"
-	SortByTitle       SortBy = "title"
-	SortByDescription SortBy = "description"
-	SortByActor       SortBy = "actor"
-)
+// sortClauses maps each valid sort key to its ORDER BY clause. Keys not in
+// the map, including the empty string, fall back to the default clause.
+var sortClauses = map[string]string{
+	"status":      " ORDER BY status ASC",
+	"milestone":   " ORDER BY milestone ASC, last_updated DESC",
+	"created":     " ORDER BY created DESC",
+	"updated":     " ORDER BY last_updated DESC",
+	"id":          " ORDER BY id ASC",
+	"title":       " ORDER BY title ASC",
+	"description": " ORDER BY description ASC",
+	"actor":       " ORDER BY actor ASC",
+}
+
+// sortOrder returns the ORDER BY clause for the given raw sort key.
+// Unknown keys (including "") fall back to the default ordering.
+func sortOrder(sortBy string) string {
+	if clause, ok := sortClauses[sortBy]; ok {
+		return clause
+	}
+	return " ORDER BY last_updated DESC"
+}
 
 // TaskFilter contains optional filters for listing tasks
 type TaskFilter struct {
@@ -44,7 +64,7 @@ type TaskFilter struct {
 	Status    string
 	Actor     string
 	ID        string
-	SortBy    SortBy
+	SortBy    string
 	Limit     int
 	Offset    int
 }
@@ -334,7 +354,7 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 	query += where
 
 	// Apply sorting
-	orderBy := getSortOrder(filter.SortBy)
+	orderBy := sortOrder(filter.SortBy)
 	query += orderBy
 
 	// Apply pagination
@@ -406,30 +426,6 @@ func (db *DB) CountTasks(filter TaskFilter) (int, error) {
 	return count, nil
 }
 
-// getSortOrder returns the ORDER BY clause based on the sort field
-func getSortOrder(sortBy SortBy) string {
-	switch sortBy {
-	case SortByStatus:
-		return " ORDER BY status ASC"
-	case SortByMilestone:
-		return " ORDER BY milestone ASC, last_updated DESC"
-	case SortByCreated:
-		return " ORDER BY created DESC"
-	case SortByUpdated:
-		return " ORDER BY last_updated DESC"
-	case SortByID:
-		return " ORDER BY id ASC"
-	case SortByTitle:
-		return " ORDER BY title ASC"
-	case SortByDescription:
-		return " ORDER BY description ASC"
-	case SortByActor:
-		return " ORDER BY actor ASC"
-	default:
-		return " ORDER BY last_updated DESC"
-	}
-}
-
 // UnblockTask transitions a task from 'blocked' to 'todo' status in a single
 // atomic database operation. The WHERE clause includes a status = 'blocked'
 // guard to prevent unauthorized status transitions. The blocked_by field is
@@ -441,7 +437,7 @@ func getSortOrder(sortBy SortBy) string {
 // state (including the real last_updated timestamp). If the task does not
 // exist it returns *TaskNotFoundError; if it exists but is not in 'blocked'
 // status it returns *TaskNotBlockedError.
-func (db *DB) UnblockTask(id string, newDescription *string) (*Task, error) {
+func (db *DB) UnblockTask(id string, newDescription string) (*Task, error) {
 	if db == nil || db.conn == nil {
 		return nil, ErrNilDB
 	}
@@ -453,9 +449,9 @@ func (db *DB) UnblockTask(id string, newDescription *string) (*Task, error) {
 	// Build the SET clause: include description only when a new value is given.
 	set := "last_updated = ?"
 	args := []interface{}{time.Now().UTC().Format(time.RFC3339)}
-	if newDescription != nil && *newDescription != "" {
+	if newDescription != "" {
 		set = "description = ?, " + set
-		args = append([]interface{}{*newDescription}, args...)
+		args = append([]interface{}{newDescription}, args...)
 	}
 
 	query := `

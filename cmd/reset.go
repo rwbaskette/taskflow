@@ -20,10 +20,7 @@ var resetCmd = &cobra.Command{
   task reset-timedout -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		doc, err := jsonDoc(resetJSON, args, "{}")
-		if err != nil {
-			fatal(err)
-		}
+		doc := jsonDoc(resetJSON, args, "{}")
 
 		resetTimeoutMinutes := 30
 		if v, ok := service.GetNumberField(doc, "minutes"); ok {

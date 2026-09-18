@@ -27,7 +27,6 @@ type ToolArg struct {
 	Name        string
 	Type        string
 	Description string
-	Required    bool
 }
 
 // ToolCommand represents a taskflow command definition
@@ -48,10 +47,10 @@ type ToolCommand struct {
 // list_status_todo). It is read-only: consumers (the wrapper template and
 // tests) never append to or mutate it, so sharing one slice is safe.
 var listFilterArgs = []ToolArg{
-	{Name: "milestone", Type: "string", Description: "Filter by milestone", Required: false},
-	{Name: "actor", Type: "string", Description: "Filter by actor", Required: false},
-	{Name: "limit", Type: "number", Description: "Maximum number of tasks to display", Required: false},
-	{Name: "offset", Type: "number", Description: "Number of tasks to skip", Required: false},
+	{Name: "milestone", Type: "string", Description: "Filter by milestone"},
+	{Name: "actor", Type: "string", Description: "Filter by actor"},
+	{Name: "limit", Type: "number", Description: "Maximum number of tasks to display"},
+	{Name: "offset", Type: "number", Description: "Number of tasks to skip"},
 }
 
 func getToolCommands() []ToolCommand {
@@ -60,33 +59,33 @@ func getToolCommands() []ToolCommand {
 			Name:        "add",
 			Description: "Add a new task to the task list. Requires id, milestone, title, and description.",
 			Args: []ToolArg{
-				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
-				{Name: "title", Type: "string", Description: "Task title (required)", Required: true},
-				{Name: "description", Type: "string", Description: "Task description (required)", Required: true},
-				{Name: "milestone", Type: "string", Description: "Milestone for the task (required)", Required: true},
-				{Name: "actor", Type: "string", Description: "Actor assigned to the task", Required: false},
+				{Name: "id", Type: "string", Description: "Task ID (required)"},
+				{Name: "title", Type: "string", Description: "Task title (required)"},
+				{Name: "description", Type: "string", Description: "Task description (required)"},
+				{Name: "milestone", Type: "string", Description: "Milestone for the task (required)"},
+				{Name: "actor", Type: "string", Description: "Actor assigned to the task"},
 			},
 		},
 		{
 			Name:        "block",
 			Description: "Block a task by providing its ID and a reason.",
 			Args: []ToolArg{
-				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
-				{Name: "reason", Type: "string", Description: "Reason for blocking the task (required)", Required: true},
+				{Name: "id", Type: "string", Description: "Task ID (required)"},
+				{Name: "reason", Type: "string", Description: "Reason for blocking the task (required)"},
 			},
 		},
 		{
 			Name:        "complete",
 			Description: "Mark a task as completed by providing its ID.",
 			Args: []ToolArg{
-				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
+				{Name: "id", Type: "string", Description: "Task ID (required)"},
 			},
 		},
 		{
 			Name:        "delete",
 			Description: "Soft delete a task by moving it to the deleted_tasks table.",
 			Args: []ToolArg{
-				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
+				{Name: "id", Type: "string", Description: "Task ID (required)"},
 			},
 		},
 		{
@@ -128,7 +127,7 @@ func getToolCommands() []ToolCommand {
 			CLISubcommand: "reset-timedout",
 			Description:   "Reset timed out tasks to todo status. Finds in-progress tasks that have exceeded the specified timeout duration.",
 			Args: []ToolArg{
-				{Name: "minutes", Type: "number", Description: "Timeout duration in minutes (default: 30)", Required: false},
+				{Name: "minutes", Type: "number", Description: "Timeout duration in minutes (default: 30)"},
 			},
 		},
 		{
@@ -137,7 +136,7 @@ func getToolCommands() []ToolCommand {
 			FixedStatus:   "in_progress",
 			Description:   "Start working on a task by moving it to in-progress status.",
 			Args: []ToolArg{
-				{Name: "id", Type: "string", Description: "Task ID (required)", Required: true},
+				{Name: "id", Type: "string", Description: "Task ID (required)"},
 			},
 		},
 		{
@@ -145,8 +144,8 @@ func getToolCommands() []ToolCommand {
 			CLISubcommand: "unblock",
 			Description:   "Unblock a previously blocked task, transitioning it from blocked back to todo status. Optionally update the description.",
 			Args: []ToolArg{
-				{Name: "id", Type: "string", Description: "The unique identifier of the task to unblock", Required: true},
-				{Name: "description", Type: "string", Description: "New description to overwrite the existing description", Required: false},
+				{Name: "id", Type: "string", Description: "The unique identifier of the task to unblock"},
+				{Name: "description", Type: "string", Description: "New description to overwrite the existing description"},
 			},
 		},
 	}

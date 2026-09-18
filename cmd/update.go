@@ -21,21 +21,17 @@ var updateCmd = &cobra.Command{
 		database := openDB()
 		defer database.Close()
 
-		doc, err := jsonDoc(updateJSON, args, "")
+		doc := jsonDoc(updateJSON, args, "")
+
+		id, err := service.GetIDField(doc)
 		if err != nil {
 			fatal(err)
 		}
-
-		id, _ := service.GetStringFieldTrim(doc, "id")
 		title, hasTitle := service.GetStringFieldTrim(doc, "title")
 		description, hasDesc := service.GetStringFieldTrim(doc, "description")
 		status, hasStatus := service.GetStringFieldTrim(doc, "status")
 		milestone, hasMilestone := service.GetStringFieldTrim(doc, "milestone")
 		actor, hasActor := service.GetStringFieldTrim(doc, "actor")
-
-		if err := clierr.ValidateID(id); err != nil {
-			fatal(err)
-		}
 
 		validateOptionalTaskFields(title, milestone, actor)
 

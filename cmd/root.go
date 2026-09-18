@@ -142,20 +142,25 @@ func validateOptionalTaskFields(title, milestone, actor string) {
 
 // jsonDoc parses the shared JSON document argument: the -j/--json flag wins,
 // then args[0]; when both are empty, emptyDefault is used ("{}" for the
-// tolerant commands list and reset) or MissingArgumentError is returned (the
+// tolerant commands list and reset) or MissingArgumentError is fatal (the
 // strict commands). ParseJSONFromArg handles the "-" stdin convention.
-func jsonDoc(flagVal string, args []string, emptyDefault string) (map[string]interface{}, error) {
+// Like openDB, it never returns on error: callers can rely on a non-nil doc.
+func jsonDoc(flagVal string, args []string, emptyDefault string) map[string]interface{} {
 	arg := flagVal
 	if arg == "" && len(args) > 0 {
 		arg = args[0]
 	}
 	if arg == "" {
 		if emptyDefault == "" {
-			return nil, clierr.MissingArgumentError("json", "provide JSON document via argument or stdin")
+			fatal(clierr.MissingArgumentError("json", "provide JSON document via argument or stdin"))
 		}
 		arg = emptyDefault
 	}
-	return service.ParseJSONFromArg(arg)
+	doc, err := service.ParseJSONFromArg(arg)
+	if err != nil {
+		fatal(err)
+	}
+	return doc
 }
 
 // printTaskResult prints the shared success report for add and update.
@@ -253,8 +258,4 @@ func renderAnchorError(err error) string {
 func printAnchorError(err error) {
 	fmt.Fprint(os.Stderr, renderAnchorError(err))
 	os.Exit(2)
-}
-
-func init() {
-	rootCmd.SetVersionTemplate("Task CLI version: {{.Version}}\n")
 }

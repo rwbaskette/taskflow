@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
 
@@ -20,14 +19,10 @@ var deleteCmd = &cobra.Command{
   task delete -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		doc, err := jsonDoc(deleteJSON, args, "")
+		doc := jsonDoc(deleteJSON, args, "")
+
+		id, err := service.GetIDField(doc)
 		if err != nil {
-			fatal(err)
-		}
-
-		id, _ := service.GetStringFieldTrim(doc, "id")
-
-		if err := clierr.ValidateID(id); err != nil {
 			fatal(err)
 		}
 

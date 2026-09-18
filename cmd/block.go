@@ -21,17 +21,13 @@ var blockCmd = &cobra.Command{
 		database := openDB()
 		defer database.Close()
 
-		doc, err := jsonDoc(blockJSON, args, "")
+		doc := jsonDoc(blockJSON, args, "")
+
+		id, err := service.GetIDField(doc)
 		if err != nil {
 			fatal(err)
 		}
-
-		id, _ := service.GetStringFieldTrim(doc, "id")
 		reason, _ := service.GetStringFieldTrim(doc, "reason")
-
-		if err := clierr.ValidateID(id); err != nil {
-			fatal(err)
-		}
 
 		// GetStringFieldTrim already trims and reports an empty reason as
 		// absent, so an empty value here means the reason is missing.

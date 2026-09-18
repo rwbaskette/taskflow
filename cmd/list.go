@@ -16,20 +16,6 @@ import (
 
 var listJSON string
 
-// validSortBy are the sort keys list accepts. "priority" was removed: the
-// db-side priority ordering was deleted, and the key silently fell
-// through to default ordering.
-var validSortBy = []string{
-	"status",
-	"milestone",
-	"created",
-	"updated",
-	"id",
-	"title",
-	"description",
-	"actor",
-}
-
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all tasks",
@@ -42,10 +28,7 @@ var listCmd = &cobra.Command{
   task list '{"id":"task-123"}'`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		doc, err := jsonDoc(listJSON, args, "{}")
-		if err != nil {
-			fatal(err)
-		}
+		doc := jsonDoc(listJSON, args, "{}")
 
 		listFilterMilestone, _ := service.GetStringFieldTrim(doc, "milestone")
 		listFilterStatus, _ := service.GetStringFieldTrim(doc, "status")
@@ -69,10 +52,10 @@ var listCmd = &cobra.Command{
 		}
 
 		if listSortBy != "" {
-			if !slices.Contains(validSortBy, listSortBy) {
+			if !slices.Contains(db.ValidSortKeys, listSortBy) {
 				fatal(clierr.ValidationError("sort-by",
 					fmt.Sprintf("'%s' is not valid", listSortBy),
-					fmt.Sprintf("Valid sort values: %s", strings.Join(validSortBy, ", "))))
+					fmt.Sprintf("Valid sort values: %s", strings.Join(db.ValidSortKeys, ", "))))
 			}
 		}
 
@@ -121,7 +104,7 @@ var listCmd = &cobra.Command{
 			Milestone: listFilterMilestone,
 			Status:    listStatusFilter,
 			Actor:     listFilterActor,
-			SortBy:    db.SortBy(listSortBy),
+			SortBy:    listSortBy,
 			Limit:     listLimit,
 			Offset:    listOffset,
 		}

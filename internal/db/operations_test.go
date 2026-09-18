@@ -643,7 +643,7 @@ func TestUnblockTask(t *testing.T) {
 		})
 
 		// Unblock without a new description
-		task, err := db.UnblockTask("unblock-success", nil)
+		task, err := db.UnblockTask("unblock-success", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -679,7 +679,7 @@ func TestUnblockTask(t *testing.T) {
 		})
 
 		newDesc := "New description after unblock"
-		task, err := db.UnblockTask("unblock-desc", &newDesc)
+		task, err := db.UnblockTask("unblock-desc", newDesc)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -708,8 +708,7 @@ func TestUnblockTask(t *testing.T) {
 			Description: "Preserve me",
 		})
 
-		empty := ""
-		task, err := db.UnblockTask("unblock-empty-desc", &empty)
+		task, err := db.UnblockTask("unblock-empty-desc", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -726,7 +725,7 @@ func TestUnblockTask(t *testing.T) {
 			Status: "todo",
 		})
 
-		_, err := db.UnblockTask("unblock-not-blocked", nil)
+		_, err := db.UnblockTask("unblock-not-blocked", "")
 		if err == nil {
 			t.Fatal("expected error when unblocking a non-blocked task")
 		}
@@ -763,7 +762,7 @@ func TestUnblockTask(t *testing.T) {
 			Status: "done",
 		})
 
-		_, err := db.UnblockTask("unblock-done", nil)
+		_, err := db.UnblockTask("unblock-done", "")
 		if err == nil {
 			t.Fatal("expected error when unblocking a done task")
 		}
@@ -790,7 +789,7 @@ func TestUnblockTask(t *testing.T) {
 			Status: "in_progress",
 		})
 
-		_, err := db.UnblockTask("unblock-inprogress", nil)
+		_, err := db.UnblockTask("unblock-inprogress", "")
 		if err == nil {
 			t.Fatal("expected error when unblocking an in_progress task")
 		}
@@ -811,7 +810,7 @@ func TestUnblockTask(t *testing.T) {
 	})
 
 	t.Run("unblock non-existent task returns TaskNotFoundError", func(t *testing.T) {
-		_, err := db.UnblockTask("nonexistent-task", nil)
+		_, err := db.UnblockTask("nonexistent-task", "")
 		if err == nil {
 			t.Fatal("expected error when unblocking a non-existent task")
 		}
@@ -827,7 +826,7 @@ func TestUnblockTask(t *testing.T) {
 			BlockedBy: []string{"dep-1"},
 		})
 
-		if _, err := db.UnblockTask("unblock-clear-blockedby", nil); err != nil {
+		if _, err := db.UnblockTask("unblock-clear-blockedby", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
@@ -856,7 +855,7 @@ func TestUnblockTask(t *testing.T) {
 		// Wait to ensure time difference
 		time.Sleep(10 * time.Millisecond)
 
-		task, err := db.UnblockTask("unblock-timestamp", nil)
+		task, err := db.UnblockTask("unblock-timestamp", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -875,12 +874,12 @@ func TestUnblockTask(t *testing.T) {
 		})
 
 		// First unblock should succeed
-		if _, err := db.UnblockTask("unblock-idempotent", nil); err != nil {
+		if _, err := db.UnblockTask("unblock-idempotent", ""); err != nil {
 			t.Fatalf("first unblock failed: %v", err)
 		}
 
 		// Second unblock should fail (task is now in todo status)
-		_, err := db.UnblockTask("unblock-idempotent", nil)
+		_, err := db.UnblockTask("unblock-idempotent", "")
 		if err == nil {
 			t.Fatal("expected error on second unblock")
 		}
@@ -897,7 +896,7 @@ func TestUnblockTask(t *testing.T) {
 	})
 
 	t.Run("unblock with empty id fails", func(t *testing.T) {
-		_, err := db.UnblockTask("", nil)
+		_, err := db.UnblockTask("", "")
 		if err == nil {
 			t.Fatal("expected error for empty id")
 		}
@@ -908,7 +907,7 @@ func TestUnblockTask(t *testing.T) {
 
 	t.Run("unblock nil db fails", func(t *testing.T) {
 		var nilDB *DB
-		_, err := nilDB.UnblockTask("test", nil)
+		_, err := nilDB.UnblockTask("test", "")
 		if err == nil {
 			t.Fatal("expected error for nil db")
 		}

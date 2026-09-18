@@ -23,10 +23,7 @@ var unblockCmd = &cobra.Command{
 		database := openDB()
 		defer database.Close()
 
-		doc, err := jsonDoc(unblockJSON, args, "")
-		if err != nil {
-			fatal(err)
-		}
+		doc := jsonDoc(unblockJSON, args, "")
 
 		// Validate the required 'id' parameter (first validation step).
 		id, err := service.GetIDField(doc)

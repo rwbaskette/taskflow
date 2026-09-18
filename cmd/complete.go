@@ -3,7 +3,6 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/service"
 )
 
@@ -21,21 +20,17 @@ var completeCmd = &cobra.Command{
 		database := openDB()
 		defer database.Close()
 
-		doc, err := jsonDoc(completeJSON, args, "")
+		doc := jsonDoc(completeJSON, args, "")
+
+		id, err := service.GetIDField(doc)
 		if err != nil {
 			fatal(err)
 		}
-
-		id, _ := service.GetStringFieldTrim(doc, "id")
 		title, _ := service.GetStringFieldTrim(doc, "title")
 		description, _ := service.GetStringFieldTrim(doc, "description")
 		statusInput, hasStatus := service.GetStringFieldTrim(doc, "status")
 		milestone, _ := service.GetStringFieldTrim(doc, "milestone")
 		actor, _ := service.GetStringFieldTrim(doc, "actor")
-
-		if err := clierr.ValidateID(id); err != nil {
-			fatal(err)
-		}
 
 		validateOptionalTaskFields(title, milestone, actor)
 

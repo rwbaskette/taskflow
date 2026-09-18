@@ -22,20 +22,17 @@ var addCmd = &cobra.Command{
 		database := openDB()
 		defer database.Close()
 
-		doc, err := jsonDoc(addJSON, args, "")
+		doc := jsonDoc(addJSON, args, "")
+
+		id, err := service.GetIDField(doc)
 		if err != nil {
 			fatal(err)
 		}
-
-		id, _ := service.GetStringFieldTrim(doc, "id")
 		milestone, _ := service.GetStringFieldTrim(doc, "milestone")
 		title, _ := service.GetStringFieldTrim(doc, "title")
 		description, _ := service.GetStringFieldTrim(doc, "description")
 		actor, _ := service.GetStringFieldTrim(doc, "actor")
 
-		if err := clierr.ValidateID(id); err != nil {
-			fatal(err)
-		}
 		if err := clierr.ValidateMilestone(milestone); err != nil {
 			fatal(err)
 		}
