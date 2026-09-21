@@ -1,86 +1,46 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
-	"github.com/rwbaskette/taskflow/internal/db"
 	"github.com/rwbaskette/taskflow/internal/service"
-	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 var completeJSON string
 
 var completeCmd = &cobra.Command{
-	Use:     "complete",
-	Short:   "Mark a task as completed",
-	Long:    "Mark a task as completed by providing its ID.\n\nThe completion can be specified as a JSON document via argument or stdin.\nFields: id (required), title, description, status, milestone, actor.",
+	Use:   "complete",
+	Short: "Mark a task as completed",
+	Long:  "Mark a task as completed by providing its ID.\n\nThe completion can be specified as a JSON document via argument or stdin.\nFields: id (required), title, description, status, milestone, actor.",
 	Example: `  task complete '{"id":"1"}'
   echo '{"id":"1","actor":"new-owner"}' | task complete -
   task complete -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		database, err := db.NewDB(db.DefaultDBPath())
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
+		database := openDB()
 		defer database.Close()
 
-		jsonArg := completeJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-			return
-		}
+		doc := jsonDoc(completeJSON, args, "")
 
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		id, err := service.GetIDField(doc)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
+		title, _ := service.GetStringFieldTrim(doc, "title")
+		description, _ := service.GetStringFieldTrim(doc, "description")
+		statusInput, hasStatus := service.GetStringFieldTrim(doc, "status")
+		milestone, _ := service.GetStringFieldTrim(doc, "milestone")
+		actor, _ := service.GetStringFieldTrim(doc, "actor")
 
-		id, _ := service.GetStringFieldTrim(doc, "id")
-		title, hasTitle := service.GetStringField(doc, "title")
-		description, _ := service.GetStringField(doc, "description")
-		status, hasStatus := service.GetStringField(doc, "status")
-		milestone, hasMilestone := service.GetStringField(doc, "milestone")
-		actor, hasActor := service.GetStringField(doc, "actor")
+		validateOptionalTaskFields(title, milestone, actor)
 
-		if err := cliErrors.ValidateID(id); err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
-
-		if hasTitle {
-			if err := cliErrors.ValidateTitle(title); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
-		if hasMilestone {
-			if err := cliErrors.ValidateMilestone(milestone); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
-		if hasActor {
-			if err := cliErrors.ValidateActor(actor); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
-		}
+		// The completion status defaults to "done" when no override is given.
+		status := "done"
 		if hasStatus {
-			if err := cliErrors.ValidateStatus(status); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
+			status = normalizeStatus(statusInput)
 		}
 
-		input := &service.CompleteTaskInput{
+		input := &service.UpdateTaskInput{
 			ID:          id,
 			Title:       title,
 			Description: description,
@@ -89,16 +49,12 @@ var completeCmd = &cobra.Command{
 			Actor:       actor,
 		}
 
-		result, err := service.CompleteTask(database, input)
+		result, err := service.UpdateTask(database, input)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
-		fmt.Printf("Task completed successfully:\n")
-		fmt.Printf("  ID: %s\n", result.ID)
-		fmt.Printf("  Title: %s\n", result.Title)
-		fmt.Printf("  Status: %s\n", result.Status)
+		printStatusResult("completed", result)
 	},
 }
 

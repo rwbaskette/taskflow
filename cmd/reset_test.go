@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -111,7 +112,7 @@ func TestResetCmdExecute(t *testing.T) {
 func TestResetCmdHelp(t *testing.T) {
 	cmd := setupResetCommand()
 
-	buf := NewOutputBuffer()
+	buf := new(bytes.Buffer)
 	cmd.SetOutput(buf)
 
 	err := cmd.Help()

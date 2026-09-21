@@ -2,15 +2,24 @@ package cmd
 
 import (
 	"bytes"
+	"regexp"
+	"strings"
 	"testing"
 
+	"github.com/rwbaskette/taskflow/internal/anchor"
+	"github.com/rwbaskette/taskflow/internal/version"
 	"github.com/spf13/cobra"
 )
 
 func TestRootCmdVersion(t *testing.T) {
-	// Test that version is set correctly
-	if rootCmd.Version != "0.1.0" {
-		t.Errorf("Version = %v, want %v", rootCmd.Version, "0.1.0")
+	// The version must match the embedded VERSION value and be semver: a
+	// guard on format and wiring, not a pin on the literal.
+	if rootCmd.Version != version.Version {
+		t.Errorf("Version = %v, want %v", rootCmd.Version, version.Version)
+	}
+	re := regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	if !re.MatchString(rootCmd.Version) {
+		t.Errorf("Version = %q, want a semver string matching %q", rootCmd.Version, re.String())
 	}
 }
 
@@ -61,16 +70,13 @@ func TestRootCmdVersionTemplate(t *testing.T) {
 }
 
 func TestPersistentFlags(t *testing.T) {
-	// Test that config flag exists
-	flag := rootCmd.PersistentFlags().Lookup("config")
-	if flag == nil {
-		t.Error("Expected 'config' flag to exist")
+	// The dead --config and --verbose flags were removed: neither was ever
+	// read (cfgFile referenced a config.yaml that does not exist).
+	if flag := rootCmd.PersistentFlags().Lookup("config"); flag != nil {
+		t.Error("Expected 'config' flag to be removed")
 	}
-
-	// Test that verbose flag exists
-	flag = rootCmd.PersistentFlags().Lookup("verbose")
-	if flag == nil {
-		t.Error("Expected 'verbose' flag to exist")
+	if flag := rootCmd.PersistentFlags().Lookup("verbose"); flag != nil {
+		t.Error("Expected 'verbose' flag to be removed")
 	}
 }
 
@@ -192,5 +198,65 @@ func TestUpdateCommand(t *testing.T) {
 
 	if updateCmd == nil {
 		t.Fatal("Expected 'update' command to exist")
+	}
+}
+
+func TestRenderAnchorErrorNotFoundRootChain(t *testing.T) {
+	// Chain length 1 with an absolute start dir: the walk started at the
+	// filesystem root, so the launcher-cwd note must appear, before the
+	// remedy lines.
+	err := &anchor.AnchorError{Chain: []string{"/"}, Reason: anchor.ReasonNotFound}
+	out := renderAnchorError(err)
+
+	note := "note: the search started at the filesystem root; the process that started taskflow ran with cwd=/ and no anchor can exist above it; fix the launcher's working directory or set TASKFLOW_DIR\n"
+	if !strings.Contains(out, note) {
+		t.Errorf("renderAnchorError() output missing root-start note:\n%s", out)
+	}
+	if !strings.Contains(out, "filesystem root reached") {
+		t.Errorf("renderAnchorError() output missing 'filesystem root reached':\n%s", out)
+	}
+	if !strings.Contains(out, "remedy: run `taskflow init` in the project root") {
+		t.Errorf("renderAnchorError() output missing init remedy line:\n%s", out)
+	}
+	if !strings.Contains(out, "or set TASKFLOW_DIR to override") {
+		t.Errorf("renderAnchorError() output missing TASKFLOW_DIR remedy line:\n%s", out)
+	}
+	if noteIdx := strings.Index(out, "note:"); noteIdx == -1 || noteIdx > strings.Index(out, "remedy:") {
+		t.Errorf("renderAnchorError() note must come before the remedy lines:\n%s", out)
+	}
+}
+
+func TestRenderAnchorErrorNotFoundNonAbsSingleEntry(t *testing.T) {
+	// Chain length 1 with a non-absolute start dir ("." fallback when
+	// os.Getwd fails): the note must NOT appear; the start dir is not a
+	// filesystem root.
+	err := &anchor.AnchorError{Chain: []string{"."}, Reason: anchor.ReasonNotFound}
+	out := renderAnchorError(err)
+
+	if strings.Contains(out, "note:") {
+		t.Errorf("renderAnchorError() output must not contain 'note:' for a non-absolute single-entry chain:\n%s", out)
+	}
+}
+
+func TestRenderAnchorErrorNotFoundMultiEntryChain(t *testing.T) {
+	// Multi-entry chain: the walk started below the root, so no note must
+	// appear.
+	err := &anchor.AnchorError{
+		Chain:  []string{"/home/u/proj", "/home/u", "/"},
+		Reason: anchor.ReasonNotFound,
+	}
+	out := renderAnchorError(err)
+
+	if strings.Contains(out, "note:") {
+		t.Errorf("renderAnchorError() output must not contain 'note:' for a multi-entry chain:\n%s", out)
+	}
+	if !strings.Contains(out, "filesystem root reached") {
+		t.Errorf("renderAnchorError() output missing 'filesystem root reached':\n%s", out)
+	}
+	if !strings.Contains(out, "remedy: run `taskflow init` in the project root") {
+		t.Errorf("renderAnchorError() output missing init remedy line:\n%s", out)
+	}
+	if !strings.Contains(out, "or set TASKFLOW_DIR to override") {
+		t.Errorf("renderAnchorError() output missing TASKFLOW_DIR remedy line:\n%s", out)
 	}
 }

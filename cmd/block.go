@@ -1,75 +1,46 @@
 package cmd
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/spf13/cobra"
 
-	"github.com/rwbaskette/taskflow/internal/db"
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/service"
-	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 var blockJSON string
 
 var blockCmd = &cobra.Command{
-	Use:     "block",
-	Short:   "Block a task",
-	Long:    "Block a task by providing its ID and a reason.\n\nA blocked task cannot be worked on until it is unblocked.\nUse 'task list' to find task IDs.",
+	Use:   "block",
+	Short: "Block a task",
+	Long:  "Block a task by providing its ID and a reason.\n\nA blocked task cannot be worked on until it is unblocked.\nUse 'task list' to find task IDs.",
 	Example: `  task block '{"id":"1","reason":"Waiting for API documentation"}'
   echo '{"id":"abc123","reason":"Dependency not available"}' | task block -
   task block -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		database, err := db.NewDB(db.DefaultDBPath())
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
+		database := openDB()
 		defer database.Close()
 
-		jsonArg := blockJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-			return
-		}
+		doc := jsonDoc(blockJSON, args, "")
 
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		id, err := service.GetIDField(doc)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
-
-		id, _ := service.GetStringFieldTrim(doc, "id")
 		reason, _ := service.GetStringFieldTrim(doc, "reason")
 
-		if err := cliErrors.ValidateID(id); err != nil {
-			cliErrors.HandleError(err)
-			return
+		// GetStringFieldTrim already trims and reports an empty reason as
+		// absent, so an empty value here means the reason is missing.
+		if reason == "" {
+			fatal(clierr.MissingArgumentError("reason", "reason is required in JSON document"))
 		}
 
-		if strings.TrimSpace(reason) == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("reason", "reason is required in JSON document"))
-			return
-		}
-
-		result, err := service.BlockTask(database, service.BlockTaskInput{
-			ID:     id,
-			Reason: reason,
-		})
+		result, err := service.BlockTask(database, id, reason)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
-		fmt.Printf("Task blocked successfully:\n")
-		fmt.Printf("  ID: %s\n", result.ID)
-		fmt.Printf("  Title: %s\n", result.Title)
-		fmt.Printf("  Status: %s\n", result.Status)
+		printStatusResult("blocked", result)
 	},
 }
 

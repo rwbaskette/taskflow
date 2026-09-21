@@ -1,9 +1,9 @@
 package db
 
 import (
-	"fmt"
-	"os"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -11,8 +11,6 @@ import (
 func setupTestDB(t *testing.T) *DB {
 	tmpDir := t.TempDir()
 	testDBPath := filepath.Join(tmpDir, "test_task.db")
-	// Set project root for schema lookup
-	os.Setenv("PROJECT_ROOT", tmpDir)
 	db, err := NewDB(testDBPath)
 	if err != nil {
 		t.Fatalf("failed to create test db: %v", err)
@@ -23,6 +21,30 @@ func setupTestDB(t *testing.T) *DB {
 func teardownTestDB(t *testing.T, db *DB) {
 	if db != nil {
 		db.Close()
+	}
+}
+
+func assertTaskNotFound(t *testing.T, err error) {
+	t.Helper()
+	var target *TaskNotFoundError
+	if !errors.As(err, &target) {
+		t.Errorf("expected TaskNotFoundError, got %v", err)
+	}
+}
+
+func assertTaskAlreadyExists(t *testing.T, err error) {
+	t.Helper()
+	var target *TaskAlreadyExistsError
+	if !errors.As(err, &target) {
+		t.Errorf("expected TaskAlreadyExistsError, got %v", err)
+	}
+}
+
+func assertInvalidTask(t *testing.T, err error) {
+	t.Helper()
+	var target *InvalidTaskError
+	if !errors.As(err, &target) {
+		t.Errorf("expected InvalidTaskError, got %v", err)
 	}
 }
 
@@ -69,9 +91,7 @@ func TestCreateTask(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for duplicate task")
 		}
-		if !IsTaskAlreadyExists(err) {
-			t.Errorf("expected TaskAlreadyExistsError, got %v", err)
-		}
+		assertTaskAlreadyExists(t, err)
 	})
 
 	t.Run("nil task", func(t *testing.T) {
@@ -95,9 +115,7 @@ func TestCreateTask(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for empty ID")
 		}
-		if !IsInvalidTask(err) {
-			t.Errorf("expected InvalidTaskError, got %v", err)
-		}
+		assertInvalidTask(t, err)
 	})
 
 	t.Run("empty title", func(t *testing.T) {
@@ -111,9 +129,7 @@ func TestCreateTask(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for empty title")
 		}
-		if !IsInvalidTask(err) {
-			t.Errorf("expected InvalidTaskError, got %v", err)
-		}
+		assertInvalidTask(t, err)
 	})
 
 	t.Run("invalid status", func(t *testing.T) {
@@ -127,9 +143,7 @@ func TestCreateTask(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for invalid status")
 		}
-		if !IsInvalidTask(err) {
-			t.Errorf("expected InvalidTaskError, got %v", err)
-		}
+		assertInvalidTask(t, err)
 	})
 
 	t.Run("LastUpdated set automatically", func(t *testing.T) {
@@ -158,78 +172,6 @@ func TestCreateTask(t *testing.T) {
 		// Check it's reasonably recent (not in the distant future)
 		if task.LastUpdated.After(after) {
 			t.Errorf("LastUpdated should be reasonable: %v > %v", task.LastUpdated, after)
-		}
-	})
-}
-
-func TestCreateTaskTx(t *testing.T) {
-	db := setupTestDB(t)
-	defer teardownTestDB(t, db)
-
-	t.Run("valid task in transaction", func(t *testing.T) {
-		tx, err := db.BeginTx()
-		if err != nil {
-			t.Fatalf("BeginTx failed: %v", err)
-		}
-		defer tx.Rollback()
-
-		task := &Task{
-			ID:     "tx-task-1",
-			Title:  "Tx Test Task",
-			Status: "todo",
-		}
-
-		err = db.CreateTaskTx(tx, task)
-		if err != nil {
-			t.Fatalf("CreateTaskTx failed: %v", err)
-		}
-
-		tx.Commit()
-
-		// Verify task was created
-		created, err := db.ReadTask("tx-task-1")
-		if err != nil {
-			t.Fatalf("ReadTask failed: %v", err)
-		}
-		if created.ID != task.ID {
-			t.Errorf("expected ID %q, got %q", task.ID, created.ID)
-		}
-	})
-
-	t.Run("nil transaction", func(t *testing.T) {
-		task := &Task{
-			ID:     "task-x",
-			Title:  "Test Task",
-			Status: "todo",
-		}
-
-		err := db.CreateTaskTx(nil, task)
-		if err == nil {
-			t.Fatal("expected error for nil transaction")
-		}
-	})
-
-	t.Run("task already exists in transaction", func(t *testing.T) {
-		// First create a task
-		db.CreateTask(&Task{
-			ID:     "dup-task",
-			Title:  "Original",
-			Status: "todo",
-		})
-
-		tx, _ := db.BeginTx()
-		defer tx.Rollback()
-
-		err := db.CreateTaskTx(tx, &Task{
-			ID:     "dup-task",
-			Title:  "Duplicate",
-			Status: "todo",
-		})
-		if err == nil {
-			t.Fatal("expected error for duplicate task in tx")
-		}
-		if !IsTaskAlreadyExists(err) {
-			t.Errorf("expected TaskAlreadyExistsError, got %v", err)
 		}
 	})
 }
@@ -274,9 +216,7 @@ func TestReadTask(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for nonexistent task")
 		}
-		if !IsTaskNotFound(err) {
-			t.Errorf("expected TaskNotFoundError, got %v", err)
-		}
+		assertTaskNotFound(t, err)
 	})
 
 	t.Run("empty ID", func(t *testing.T) {
@@ -286,54 +226,6 @@ func TestReadTask(t *testing.T) {
 		}
 		if err != ErrInvalidID {
 			t.Errorf("expected ErrInvalidID, got %v", err)
-		}
-	})
-}
-
-func TestReadTaskTx(t *testing.T) {
-	db := setupTestDB(t)
-	defer teardownTestDB(t, db)
-
-	// Setup: create a task to read
-	db.CreateTask(&Task{
-		ID:     "tx-read-task",
-		Title:  "Tx Read This Task",
-		Status: "done",
-	})
-
-	t.Run("valid read in transaction", func(t *testing.T) {
-		tx, err := db.BeginTx()
-		if err != nil {
-			t.Fatalf("BeginTx failed: %v", err)
-		}
-		defer tx.Rollback()
-
-		task, err := db.ReadTaskTx(tx, "tx-read-task")
-		if err != nil {
-			t.Fatalf("ReadTaskTx failed: %v", err)
-		}
-		if task.ID != "tx-read-task" {
-			t.Errorf("expected ID %q, got %q", "tx-read-task", task.ID)
-		}
-	})
-
-	t.Run("nil transaction", func(t *testing.T) {
-		_, err := db.ReadTaskTx(nil, "task-1")
-		if err == nil {
-			t.Fatal("expected error for nil transaction")
-		}
-	})
-
-	t.Run("task not found in transaction", func(t *testing.T) {
-		tx, _ := db.BeginTx()
-		defer tx.Rollback()
-
-		_, err := db.ReadTaskTx(tx, "nonexistent")
-		if err == nil {
-			t.Fatal("expected error for nonexistent task in tx")
-		}
-		if !IsTaskNotFound(err) {
-			t.Errorf("expected TaskNotFoundError, got %v", err)
 		}
 	})
 }
@@ -390,9 +282,7 @@ func TestUpdateTask(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for nonexistent task")
 		}
-		if !IsTaskNotFound(err) {
-			t.Errorf("expected TaskNotFoundError, got %v", err)
-		}
+		assertTaskNotFound(t, err)
 	})
 
 	t.Run("nil task", func(t *testing.T) {
@@ -416,9 +306,7 @@ func TestUpdateTask(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for empty ID")
 		}
-		if !IsInvalidTask(err) {
-			t.Errorf("expected InvalidTaskError, got %v", err)
-		}
+		assertInvalidTask(t, err)
 	})
 
 	t.Run("invalid status", func(t *testing.T) {
@@ -432,15 +320,13 @@ func TestUpdateTask(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for invalid status")
 		}
-		if !IsInvalidTask(err) {
-			t.Errorf("expected InvalidTaskError, got %v", err)
-		}
+		assertInvalidTask(t, err)
 	})
 
 	t.Run("LastUpdated updated automatically", func(t *testing.T) {
 		// Get original task
 		original, _ := db.ReadTask("update-task")
-		originalTitle := original.Title
+		originalUpdated := original.LastUpdated
 
 		// Wait a bit to ensure time difference
 		time.Sleep(10 * time.Millisecond)
@@ -460,179 +346,64 @@ func TestUpdateTask(t *testing.T) {
 		if updated.Title != "New Title" {
 			t.Errorf("expected title %q, got %q", "New Title", updated.Title)
 		}
-		if updated.Title == originalTitle {
-			t.Error("LastUpdated should have changed")
+		// Timestamps are stored at second granularity (RFC3339), so assert
+		// non-decreasing rather than strictly increasing.
+		if updated.LastUpdated.Before(originalUpdated) {
+			t.Errorf("expected LastUpdated to not go backwards: %v < %v", updated.LastUpdated, originalUpdated)
 		}
 	})
 }
 
-func TestUpdateTaskTx(t *testing.T) {
+func TestSoftDeleteTask(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(t, db)
 
-	// Setup
-	db.CreateTask(&Task{
-		ID:     "tx-update-task",
-		Title:  "Original",
-		Status: "todo",
-	})
-
-	t.Run("valid update in transaction", func(t *testing.T) {
-		tx, err := db.BeginTx()
-		if err != nil {
-			t.Fatalf("BeginTx failed: %v", err)
-		}
-		defer tx.Rollback()
-
-		task := &Task{
-			ID:     "tx-update-task",
-			Title:  "Tx Updated",
-			Status: "done",
-		}
-
-		err = db.UpdateTaskTx(tx, task)
-		if err != nil {
-			t.Fatalf("UpdateTaskTx failed: %v", err)
-		}
-
-		tx.Commit()
-
-		updated, _ := db.ReadTask("tx-update-task")
-		if updated.Title != "Tx Updated" {
-			t.Errorf("expected title %q, got %q", "Tx Updated", updated.Title)
-		}
-	})
-
-	t.Run("nil transaction", func(t *testing.T) {
-		task := &Task{
-			ID:     "task-x",
-			Title:  "Test Task",
-			Status: "todo",
-		}
-
-		err := db.UpdateTaskTx(nil, task)
-		if err == nil {
-			t.Fatal("expected error for nil transaction")
-		}
-	})
-
-	t.Run("task not found in transaction", func(t *testing.T) {
-		tx, _ := db.BeginTx()
-		defer tx.Rollback()
-
-		err := db.UpdateTaskTx(tx, &Task{
-			ID:     "nonexistent",
-			Title:  "Test",
+	t.Run("soft delete returns stored timestamp and removes task", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:     "softdel-task",
+			Title:  "Delete Me",
 			Status: "todo",
 		})
-		if err == nil {
-			t.Fatal("expected error for nonexistent task in tx")
-		}
-		if !IsTaskNotFound(err) {
-			t.Errorf("expected TaskNotFoundError, got %v", err)
-		}
-	})
-}
 
-func TestDeleteTask(t *testing.T) {
-	db := setupTestDB(t)
-	defer teardownTestDB(t, db)
-
-	// Setup: create a task to delete
-	db.CreateTask(&Task{
-		ID:     "delete-task",
-		Title:  "Delete Me",
-		Status: "todo",
-	})
-
-	t.Run("valid delete", func(t *testing.T) {
-		err := db.DeleteTask("delete-task")
+		before := time.Now().UTC()
+		deletedOn, err := db.SoftDeleteTask("softdel-task")
 		if err != nil {
-			t.Fatalf("DeleteTask failed: %v", err)
+			t.Fatalf("SoftDeleteTask failed: %v", err)
+		}
+		after := time.Now().UTC().Add(time.Minute)
+
+		// The returned timestamp must match what was stored (non-zero,
+		// within the call window).
+		if deletedOn.IsZero() {
+			t.Error("expected non-zero deleted_on")
+		}
+		if deletedOn.Before(before) || deletedOn.After(after) {
+			t.Errorf("expected deleted_on within call window, got %v", deletedOn)
 		}
 
-		// Verify deletion
-		_, err = db.ReadTask("delete-task")
+		// Verify the task no longer exists in the active table
+		_, err = db.ReadTask("softdel-task")
 		if err == nil {
-			t.Fatal("expected error after deletion")
+			t.Fatal("expected error after soft deletion")
 		}
-		if !IsTaskNotFound(err) {
-			t.Errorf("expected TaskNotFoundError, got %v", err)
-		}
+		assertTaskNotFound(t, err)
 	})
 
-	t.Run("task not found", func(t *testing.T) {
-		err := db.DeleteTask("nonexistent-id")
+	t.Run("soft delete task not found", func(t *testing.T) {
+		_, err := db.SoftDeleteTask("nonexistent-id")
 		if err == nil {
 			t.Fatal("expected error for nonexistent task")
 		}
-		if !IsTaskNotFound(err) {
-			t.Errorf("expected TaskNotFoundError, got %v", err)
-		}
+		assertTaskNotFound(t, err)
 	})
 
-	t.Run("empty ID", func(t *testing.T) {
-		err := db.DeleteTask("")
+	t.Run("soft delete empty ID", func(t *testing.T) {
+		_, err := db.SoftDeleteTask("")
 		if err == nil {
 			t.Fatal("expected error for empty ID")
 		}
 		if err != ErrInvalidID {
 			t.Errorf("expected ErrInvalidID, got %v", err)
-		}
-	})
-}
-
-func TestDeleteTaskTx(t *testing.T) {
-	db := setupTestDB(t)
-	defer teardownTestDB(t, db)
-
-	// Setup
-	db.CreateTask(&Task{
-		ID:     "tx-delete-task",
-		Title:  "Delete Me",
-		Status: "todo",
-	})
-
-	t.Run("valid delete in transaction", func(t *testing.T) {
-		tx, err := db.BeginTx()
-		if err != nil {
-			t.Fatalf("BeginTx failed: %v", err)
-		}
-		defer tx.Rollback()
-
-		err = db.DeleteTaskTx(tx, "tx-delete-task")
-		if err != nil {
-			t.Fatalf("DeleteTaskTx failed: %v", err)
-		}
-
-		tx.Commit()
-
-		_, err = db.ReadTask("tx-delete-task")
-		if err == nil {
-			t.Fatal("expected error after deletion in tx")
-		}
-		if !IsTaskNotFound(err) {
-			t.Errorf("expected TaskNotFoundError, got %v", err)
-		}
-	})
-
-	t.Run("nil transaction", func(t *testing.T) {
-		err := db.DeleteTaskTx(nil, "task-1")
-		if err == nil {
-			t.Fatal("expected error for nil transaction")
-		}
-	})
-
-	t.Run("task not found in transaction", func(t *testing.T) {
-		tx, _ := db.BeginTx()
-		defer tx.Rollback()
-
-		err := db.DeleteTaskTx(tx, "nonexistent")
-		if err == nil {
-			t.Fatal("expected error for nonexistent task in tx")
-		}
-		if !IsTaskNotFound(err) {
-			t.Errorf("expected TaskNotFoundError, got %v", err)
 		}
 	})
 }
@@ -826,16 +597,6 @@ func TestCountTasks(t *testing.T) {
 		}
 	})
 
-	t.Run("count with sprint filter", func(t *testing.T) {
-		count, err := db.CountTasks(TaskFilter{Sprint: "s1"})
-		if err != nil {
-			t.Fatalf("CountTasks failed: %v", err)
-		}
-		if count != 2 {
-			t.Errorf("expected count=2 for sprint s1, got %d", count)
-		}
-	})
-
 	t.Run("count with id filter", func(t *testing.T) {
 		count, err := db.CountTasks(TaskFilter{ID: "task-3"})
 		if err != nil {
@@ -867,135 +628,13 @@ func TestCountTasks(t *testing.T) {
 	})
 }
 
-func TestBeginTx(t *testing.T) {
-	db := setupTestDB(t)
-	defer teardownTestDB(t, db)
-
-	t.Run("successful transaction start", func(t *testing.T) {
-		tx, err := db.BeginTx()
-		if err != nil {
-			t.Fatalf("BeginTx failed: %v", err)
-		}
-		if tx == nil {
-			t.Fatal("expected non-nil transaction")
-		}
-		tx.Rollback()
-	})
-
-	t.Run("transaction can execute queries", func(t *testing.T) {
-		tx, _ := db.BeginTx()
-
-		// Create task within transaction
-		task := &Task{
-			ID:     "tx-test",
-			Title:  "Transaction Test",
-			Status: "todo",
-		}
-		err := db.CreateTaskTx(tx, task)
-		if err != nil {
-			t.Fatalf("CreateTaskTx failed: %v", err)
-		}
-
-		// Read within transaction
-		readTask, err := db.ReadTaskTx(tx, "tx-test")
-		if err != nil {
-			t.Fatalf("ReadTaskTx failed: %v", err)
-		}
-		if readTask.ID != "tx-test" {
-			t.Errorf("expected ID %q, got %q", "tx-test", readTask.ID)
-		}
-
-		tx.Commit()
-
-		// Verify task committed
-		committed, _ := db.ReadTask("tx-test")
-		if committed == nil {
-			t.Error("expected task to be committed")
-		}
-	})
-
-	t.Run("transaction rollback", func(t *testing.T) {
-		tx, _ := db.BeginTx()
-
-		// Create task within transaction
-		task := &Task{
-			ID:     "tx-rollback-test",
-			Title:  "Rollback Test",
-			Status: "todo",
-		}
-		db.CreateTaskTx(tx, task)
-
-		// Rollback
-		tx.Rollback()
-
-		// Verify task was not committed
-		_, err := db.ReadTask("tx-rollback-test")
-		if err == nil {
-			t.Error("expected task to be rolled back")
-		}
-	})
-}
-
-func TestErrorPredicates(t *testing.T) {
-	t.Run("IsTaskNotFound with direct error", func(t *testing.T) {
-		err := NewTaskNotFoundError("test-id")
-		if !IsTaskNotFound(err) {
-			t.Error("IsTaskNotFound should return true for TaskNotFoundError")
-		}
-	})
-
-	t.Run("IsTaskNotFound with wrapped error", func(t *testing.T) {
-		err := NewTaskNotFoundError("test-id")
-		wrapped := fmt.Errorf("wrapped: %w", err)
-		if !IsTaskNotFound(wrapped) {
-			t.Error("IsTaskNotFound should return true for wrapped TaskNotFoundError")
-		}
-	})
-
-	t.Run("IsTaskNotFound with nil", func(t *testing.T) {
-		if IsTaskNotFound(nil) {
-			t.Error("IsTaskNotFound should return false for nil")
-		}
-	})
-
-	t.Run("IsTaskAlreadyExists with direct error", func(t *testing.T) {
-		err := NewTaskAlreadyExistsError("test-id")
-		if !IsTaskAlreadyExists(err) {
-			t.Error("IsTaskAlreadyExists should return true for TaskAlreadyExistsError")
-		}
-	})
-
-	t.Run("IsTaskAlreadyExists with wrapped error", func(t *testing.T) {
-		err := NewTaskAlreadyExistsError("test-id")
-		wrapped := fmt.Errorf("wrapped: %w", err)
-		if !IsTaskAlreadyExists(wrapped) {
-			t.Error("IsTaskAlreadyExists should return true for wrapped TaskAlreadyExistsError")
-		}
-	})
-
-	t.Run("IsInvalidTask with direct error", func(t *testing.T) {
-		err := NewInvalidTaskError("field", "message")
-		if !IsInvalidTask(err) {
-			t.Error("IsInvalidTask should return true for InvalidTaskError")
-		}
-	})
-
-	t.Run("IsInvalidTask with wrapped error", func(t *testing.T) {
-		err := NewInvalidTaskError("field", "message")
-		wrapped := fmt.Errorf("wrapped: %w", err)
-		if !IsInvalidTask(wrapped) {
-			t.Error("IsInvalidTask should return true for wrapped InvalidTaskError")
-		}
-	})
-}
-
 // ===== Database-Level Unblock Validation Tests =====
 
 func TestUnblockTask(t *testing.T) {
 	db := setupTestDB(t)
 	defer teardownTestDB(t, db)
 
-	t.Run("unblock blocked task succeeds", func(t *testing.T) {
+	t.Run("unblock blocked task succeeds and returns stored state", func(t *testing.T) {
 		// Create a task and block it
 		db.CreateTask(&Task{
 			ID:     "unblock-success",
@@ -1003,20 +642,31 @@ func TestUnblockTask(t *testing.T) {
 			Status: "blocked",
 		})
 
-		// Unblock with nil description
-		now := time.Now().UTC()
-		err := db.UnblockTask("unblock-success", nil, now)
+		// Unblock without a new description
+		task, err := db.UnblockTask("unblock-success", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Verify the task is now in todo status
+		// The returned task must be the freshly stored state
+		if task.Status != "todo" {
+			t.Errorf("expected status 'todo', got %s", task.Status)
+		}
+		if task.ID != "unblock-success" {
+			t.Errorf("expected ID 'unblock-success', got %s", task.ID)
+		}
+
+		// Verify against the persisted record; LastUpdated must match exactly
+		// because UnblockTask returns the freshly read task.
 		updated, err := db.ReadTask("unblock-success")
 		if err != nil {
 			t.Fatalf("failed to read task: %v", err)
 		}
 		if updated.Status != "todo" {
 			t.Errorf("expected status 'todo', got %s", updated.Status)
+		}
+		if !task.LastUpdated.Equal(updated.LastUpdated) {
+			t.Errorf("expected returned LastUpdated %v to equal stored %v", task.LastUpdated, updated.LastUpdated)
 		}
 	})
 
@@ -1029,25 +679,45 @@ func TestUnblockTask(t *testing.T) {
 		})
 
 		newDesc := "New description after unblock"
-		now := time.Now().UTC()
-		err := db.UnblockTask("unblock-desc", &newDesc, now)
+		task, err := db.UnblockTask("unblock-desc", newDesc)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if task.Status != "todo" {
+			t.Errorf("expected status 'todo', got %s", task.Status)
+		}
+		if task.Description != newDesc {
+			t.Errorf("expected description %q, got %q", newDesc, task.Description)
 		}
 
 		updated, err := db.ReadTask("unblock-desc")
 		if err != nil {
 			t.Fatalf("failed to read task: %v", err)
 		}
-		if updated.Status != "todo" {
-			t.Errorf("expected status 'todo', got %s", updated.Status)
-		}
 		if updated.Description != newDesc {
-			t.Errorf("expected description %q, got %q", newDesc, updated.Description)
+			t.Errorf("expected persisted description %q, got %q", newDesc, updated.Description)
 		}
 	})
 
-	t.Run("unblock non-blocked task fails", func(t *testing.T) {
+	t.Run("unblock with empty-string description preserves description", func(t *testing.T) {
+		db.CreateTask(&Task{
+			ID:          "unblock-empty-desc",
+			Title:       "Empty Description Test",
+			Status:      "blocked",
+			Description: "Preserve me",
+		})
+
+		task, err := db.UnblockTask("unblock-empty-desc", "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if task.Description != "Preserve me" {
+			t.Errorf("expected description to be preserved, got %q", task.Description)
+		}
+	})
+
+	t.Run("unblock non-blocked task returns TaskNotBlockedError", func(t *testing.T) {
 		// Create a task in todo status
 		db.CreateTask(&Task{
 			ID:     "unblock-not-blocked",
@@ -1055,13 +725,24 @@ func TestUnblockTask(t *testing.T) {
 			Status: "todo",
 		})
 
-		now := time.Now().UTC()
-		err := db.UnblockTask("unblock-not-blocked", nil, now)
+		_, err := db.UnblockTask("unblock-not-blocked", "")
 		if err == nil {
 			t.Fatal("expected error when unblocking a non-blocked task")
 		}
-		if !IsTaskNotFound(err) {
-			t.Errorf("expected TaskNotFoundError, got %v", err)
+		var notBlocked *TaskNotBlockedError
+		if !errors.As(err, &notBlocked) {
+			t.Errorf("expected TaskNotBlockedError, got %v", err)
+		} else {
+			if notBlocked.ID != "unblock-not-blocked" {
+				t.Errorf("expected ID 'unblock-not-blocked', got %q", notBlocked.ID)
+			}
+			if notBlocked.Status != "todo" {
+				t.Errorf("expected Status 'todo', got %q", notBlocked.Status)
+			}
+			wantMsg := `task "unblock-not-blocked" is in "todo" status, not blocked`
+			if notBlocked.Error() != wantMsg {
+				t.Errorf("expected message %q, got %q", wantMsg, notBlocked.Error())
+			}
 		}
 
 		// Verify the task status was not changed
@@ -1081,10 +762,15 @@ func TestUnblockTask(t *testing.T) {
 			Status: "done",
 		})
 
-		now := time.Now().UTC()
-		err := db.UnblockTask("unblock-done", nil, now)
+		_, err := db.UnblockTask("unblock-done", "")
 		if err == nil {
 			t.Fatal("expected error when unblocking a done task")
+		}
+		var notBlocked *TaskNotBlockedError
+		if !errors.As(err, &notBlocked) {
+			t.Errorf("expected TaskNotBlockedError, got %v", err)
+		} else if notBlocked.Status != "done" {
+			t.Errorf("expected Status 'done', got %q", notBlocked.Status)
 		}
 
 		updated, err := db.ReadTask("unblock-done")
@@ -1103,10 +789,15 @@ func TestUnblockTask(t *testing.T) {
 			Status: "in_progress",
 		})
 
-		now := time.Now().UTC()
-		err := db.UnblockTask("unblock-inprogress", nil, now)
+		_, err := db.UnblockTask("unblock-inprogress", "")
 		if err == nil {
 			t.Fatal("expected error when unblocking an in_progress task")
+		}
+		var notBlocked *TaskNotBlockedError
+		if !errors.As(err, &notBlocked) {
+			t.Errorf("expected TaskNotBlockedError, got %v", err)
+		} else if notBlocked.Status != "in_progress" {
+			t.Errorf("expected Status 'in_progress', got %q", notBlocked.Status)
 		}
 
 		updated, err := db.ReadTask("unblock-inprogress")
@@ -1118,15 +809,12 @@ func TestUnblockTask(t *testing.T) {
 		}
 	})
 
-	t.Run("unblock non-existent task fails", func(t *testing.T) {
-		now := time.Now().UTC()
-		err := db.UnblockTask("nonexistent-task", nil, now)
+	t.Run("unblock non-existent task returns TaskNotFoundError", func(t *testing.T) {
+		_, err := db.UnblockTask("nonexistent-task", "")
 		if err == nil {
 			t.Fatal("expected error when unblocking a non-existent task")
 		}
-		if !IsTaskNotFound(err) {
-			t.Errorf("expected TaskNotFoundError, got %v", err)
-		}
+		assertTaskNotFound(t, err)
 	})
 
 	t.Run("unblock clears blocked_by to NULL", func(t *testing.T) {
@@ -1138,15 +826,13 @@ func TestUnblockTask(t *testing.T) {
 			BlockedBy: []string{"dep-1"},
 		})
 
-		now := time.Now().UTC()
-		err := db.UnblockTask("unblock-clear-blockedby", nil, now)
-		if err != nil {
+		if _, err := db.UnblockTask("unblock-clear-blockedby", ""); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
 		// Read the raw database record to verify blocked_by is NULL
 		var blockedByStr *string
-		err = db.conn.QueryRow("SELECT blocked_by FROM tasks WHERE id = ?", "unblock-clear-blockedby").Scan(&blockedByStr)
+		err := db.conn.QueryRow("SELECT blocked_by FROM tasks WHERE id = ?", "unblock-clear-blockedby").Scan(&blockedByStr)
 		if err != nil {
 			t.Fatalf("failed to read raw blocked_by: %v", err)
 		}
@@ -1169,19 +855,14 @@ func TestUnblockTask(t *testing.T) {
 		// Wait to ensure time difference
 		time.Sleep(10 * time.Millisecond)
 
-		now := time.Now().UTC()
-		err := db.UnblockTask("unblock-timestamp", nil, now)
+		task, err := db.UnblockTask("unblock-timestamp", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-
-		// Read the updated task
-		updated, err := db.ReadTask("unblock-timestamp")
-		if err != nil {
-			t.Fatalf("failed to read task: %v", err)
-		}
-		if updated.LastUpdated.Before(originalUpdated) {
-			t.Error("expected last_updated to be updated")
+		// Timestamps are stored at second granularity (RFC3339), so assert
+		// non-decreasing rather than strictly increasing.
+		if task.LastUpdated.Before(originalUpdated) {
+			t.Errorf("expected last_updated to not go backwards: %v < %v", task.LastUpdated, originalUpdated)
 		}
 	})
 
@@ -1192,19 +873,19 @@ func TestUnblockTask(t *testing.T) {
 			Status: "blocked",
 		})
 
-		now := time.Now().UTC()
-
 		// First unblock should succeed
-		err := db.UnblockTask("unblock-idempotent", nil, now)
-		if err != nil {
+		if _, err := db.UnblockTask("unblock-idempotent", ""); err != nil {
 			t.Fatalf("first unblock failed: %v", err)
 		}
 
 		// Second unblock should fail (task is now in todo status)
-		now = time.Now().UTC()
-		err = db.UnblockTask("unblock-idempotent", nil, now)
+		_, err := db.UnblockTask("unblock-idempotent", "")
 		if err == nil {
 			t.Fatal("expected error on second unblock")
+		}
+		var notBlocked *TaskNotBlockedError
+		if !errors.As(err, &notBlocked) {
+			t.Errorf("expected TaskNotBlockedError, got %v", err)
 		}
 
 		// Verify status is still todo
@@ -1215,8 +896,7 @@ func TestUnblockTask(t *testing.T) {
 	})
 
 	t.Run("unblock with empty id fails", func(t *testing.T) {
-		now := time.Now().UTC()
-		err := db.UnblockTask("", nil, now)
+		_, err := db.UnblockTask("", "")
 		if err == nil {
 			t.Fatal("expected error for empty id")
 		}
@@ -1227,8 +907,7 @@ func TestUnblockTask(t *testing.T) {
 
 	t.Run("unblock nil db fails", func(t *testing.T) {
 		var nilDB *DB
-		now := time.Now().UTC()
-		err := nilDB.UnblockTask("test", nil, now)
+		_, err := nilDB.UnblockTask("test", "")
 		if err == nil {
 			t.Fatal("expected error for nil db")
 		}
@@ -1238,139 +917,43 @@ func TestUnblockTask(t *testing.T) {
 	})
 }
 
-func TestUnblockTaskTx(t *testing.T) {
-	db := setupTestDB(t)
-	defer teardownTestDB(t, db)
+// TestCorruptTimestampTask pins the scanTask parse-error behavior: a row
+// whose created/last_updated columns are not RFC3339 must surface as an
+// error from ReadTask, never as a zero-time task. SoftDeleteTask copies the
+// row verbatim via INSERT..SELECT without a pre-read parse, so it succeeds
+// and removes the row. The corrupt rows fill every nullable column so the
+// row-level Scan succeeds and the failure lands in the timestamp/blocked_by
+// parse, not the scan.
+func TestCorruptTimestampTask(t *testing.T) {
+	database := setupTestDB(t)
+	defer teardownTestDB(t, database)
 
-	t.Run("unblock in transaction succeeds", func(t *testing.T) {
-		db.CreateTask(&Task{
-			ID:     "tx-unblock",
-			Title:  "Tx Unblock Task",
-			Status: "blocked",
-		})
+	_, err := database.conn.Exec(
+		`INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, created, last_updated)
+		 VALUES ('corrupt-1', 'm', 's', 'Corrupt', 'd', 'todo', 'a', 'not-a-time', 'not-a-time')`)
+	if err != nil {
+		t.Fatalf("failed to insert corrupt row: %v", err)
+	}
 
-		tx, err := db.BeginTx()
-		if err != nil {
-			t.Fatalf("BeginTx failed: %v", err)
-		}
-		defer tx.Rollback()
+	if _, err := database.ReadTask("corrupt-1"); !strings.Contains(err.Error(), "parse created") {
+		t.Errorf("ReadTask: expected a created-timestamp parse error, got %v", err)
+	}
+	if _, err := database.SoftDeleteTask("corrupt-1"); err != nil {
+		t.Errorf("SoftDeleteTask: expected success (verbatim copy, no parse), got %v", err)
+	}
 
-		now := time.Now().UTC()
-		err = db.UnblockTaskTx(tx, "tx-unblock", nil, now)
-		if err != nil {
-			t.Fatalf("UnblockTaskTx failed: %v", err)
-		}
+	// Corrupt blocked_by with valid timestamps must also surface as an
+	// error: only SQL NULL or the empty string mean "no blockers".
+	_, err = database.conn.Exec(
+		`INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated)
+		 VALUES ('corrupt-2', 'm', 's', 'Corrupt blocked_by', 'd', 'todo', 'a', 'not-json', ?, ?)`,
+		time.Now().UTC().Format(time.RFC3339),
+		time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("failed to insert corrupt blocked_by row: %v", err)
+	}
 
-		tx.Commit()
-
-		updated, err := db.ReadTask("tx-unblock")
-		if err != nil {
-			t.Fatalf("failed to read task: %v", err)
-		}
-		if updated.Status != "todo" {
-			t.Errorf("expected status 'todo', got %s", updated.Status)
-		}
-	})
-
-	t.Run("unblock in transaction with description", func(t *testing.T) {
-		db.CreateTask(&Task{
-			ID:          "tx-unblock-desc",
-			Title:       "Tx Unblock With Description",
-			Status:      "blocked",
-			Description: "Original",
-		})
-
-		tx, err := db.BeginTx()
-		if err != nil {
-			t.Fatalf("BeginTx failed: %v", err)
-		}
-		defer tx.Rollback()
-
-		newDesc := "Updated description in tx"
-		now := time.Now().UTC()
-		err = db.UnblockTaskTx(tx, "tx-unblock-desc", &newDesc, now)
-		if err != nil {
-			t.Fatalf("UnblockTaskTx failed: %v", err)
-		}
-
-		tx.Commit()
-
-		updated, err := db.ReadTask("tx-unblock-desc")
-		if err != nil {
-			t.Fatalf("failed to read task: %v", err)
-		}
-		if updated.Status != "todo" {
-			t.Errorf("expected status 'todo', got %s", updated.Status)
-		}
-		if updated.Description != newDesc {
-			t.Errorf("expected description %q, got %q", newDesc, updated.Description)
-		}
-	})
-
-	t.Run("unblock non-blocked in transaction fails", func(t *testing.T) {
-		db.CreateTask(&Task{
-			ID:     "tx-unblock-not-blocked",
-			Title:  "Not Blocked In Tx",
-			Status: "todo",
-		})
-
-		tx, err := db.BeginTx()
-		if err != nil {
-			t.Fatalf("BeginTx failed: %v", err)
-		}
-		defer tx.Rollback()
-
-		now := time.Now().UTC()
-		err = db.UnblockTaskTx(tx, "tx-unblock-not-blocked", nil, now)
-		if err == nil {
-			t.Fatal("expected error when unblocking non-blocked task in tx")
-		}
-
-		updated, err := db.ReadTask("tx-unblock-not-blocked")
-		if err != nil {
-			t.Fatalf("failed to read task: %v", err)
-		}
-		if updated.Status != "todo" {
-			t.Errorf("expected status to remain 'todo', got %s", updated.Status)
-		}
-	})
-
-	t.Run("nil transaction fails", func(t *testing.T) {
-		now := time.Now().UTC()
-		err := db.UnblockTaskTx(nil, "test", nil, now)
-		if err == nil {
-			t.Fatal("expected error for nil transaction")
-		}
-	})
-
-	t.Run("transaction rollback prevents unblock", func(t *testing.T) {
-		db.CreateTask(&Task{
-			ID:     "tx-unblock-rollback",
-			Title:  "Rollback Test",
-			Status: "blocked",
-		})
-
-		tx, err := db.BeginTx()
-		if err != nil {
-			t.Fatalf("BeginTx failed: %v", err)
-		}
-
-		now := time.Now().UTC()
-		err = db.UnblockTaskTx(tx, "tx-unblock-rollback", nil, now)
-		if err != nil {
-			t.Fatalf("UnblockTaskTx failed: %v", err)
-		}
-
-		// Rollback instead of commit
-		tx.Rollback()
-
-		// Verify the task is still blocked
-		updated, err := db.ReadTask("tx-unblock-rollback")
-		if err != nil {
-			t.Fatalf("failed to read task: %v", err)
-		}
-		if updated.Status != "blocked" {
-			t.Errorf("expected status to remain 'blocked' after rollback, got %s", updated.Status)
-		}
-	})
+	if _, err := database.ReadTask("corrupt-2"); !strings.Contains(err.Error(), "parse blocked_by") {
+		t.Errorf("ReadTask: expected a blocked_by parse error, got %v", err)
+	}
 }

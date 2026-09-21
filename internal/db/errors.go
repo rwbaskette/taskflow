@@ -5,22 +5,10 @@ import (
 	"fmt"
 )
 
-// Custom error types for database operations
+// Sentinels for database operations
 var (
-	// ErrTaskNotFound is returned when a task is not found in the database
-	ErrTaskNotFound = errors.New("task not found")
-
-	// ErrTaskAlreadyExists is returned when attempting to create a task with an existing ID
-	ErrTaskAlreadyExists = errors.New("task already exists")
-
-	// ErrInvalidTask is returned when task data is invalid
-	ErrInvalidTask = errors.New("invalid task data")
-
 	// ErrInvalidID is returned when task ID is empty or invalid
 	ErrInvalidID = errors.New("invalid task ID")
-
-	// ErrTransactionFailed is returned when a transaction fails
-	ErrTransactionFailed = errors.New("transaction failed")
 
 	// ErrNilTask is returned when a nil task is passed to a function
 	ErrNilTask = errors.New("nil task provided")
@@ -38,11 +26,6 @@ func (e *TaskNotFoundError) Error() string {
 	return fmt.Sprintf("task with ID %q not found", e.ID)
 }
 
-// NewTaskNotFoundError creates a new TaskNotFoundError
-func NewTaskNotFoundError(id string) *TaskNotFoundError {
-	return &TaskNotFoundError{ID: id}
-}
-
 // TaskAlreadyExistsError wraps task ID for detailed error messaging
 type TaskAlreadyExistsError struct {
 	ID string
@@ -50,11 +33,6 @@ type TaskAlreadyExistsError struct {
 
 func (e *TaskAlreadyExistsError) Error() string {
 	return fmt.Sprintf("task with ID %q already exists", e.ID)
-}
-
-// NewTaskAlreadyExistsError creates a new TaskAlreadyExistsError
-func NewTaskAlreadyExistsError(id string) *TaskAlreadyExistsError {
-	return &TaskAlreadyExistsError{ID: id}
 }
 
 // InvalidTaskError wraps validation errors
@@ -67,34 +45,15 @@ func (e *InvalidTaskError) Error() string {
 	return fmt.Sprintf("invalid task field %q: %s", e.Field, e.Message)
 }
 
-// NewInvalidTaskError creates a new InvalidTaskError
-func NewInvalidTaskError(field, message string) *InvalidTaskError {
-	return &InvalidTaskError{Field: field, Message: message}
+// TaskNotBlockedError is returned when an operation requires a task in
+// 'blocked' status but the task exists in a different status. The Status
+// field carries the task's actual current status so callers can produce a
+// precise message.
+type TaskNotBlockedError struct {
+	ID     string
+	Status string
 }
 
-// IsTaskNotFound checks if an error is a TaskNotFoundError
-func IsTaskNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	var taskErr *TaskNotFoundError
-	return errors.As(err, &taskErr)
-}
-
-// IsTaskAlreadyExists checks if an error is a TaskAlreadyExistsError
-func IsTaskAlreadyExists(err error) bool {
-	if err == nil {
-		return false
-	}
-	var taskErr *TaskAlreadyExistsError
-	return errors.As(err, &taskErr)
-}
-
-// IsInvalidTask checks if an error is an InvalidTaskError
-func IsInvalidTask(err error) bool {
-	if err == nil {
-		return false
-	}
-	var taskErr *InvalidTaskError
-	return errors.As(err, &taskErr)
+func (e *TaskNotBlockedError) Error() string {
+	return fmt.Sprintf("task %q is in %q status, not blocked", e.ID, e.Status)
 }

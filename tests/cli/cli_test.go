@@ -56,21 +56,36 @@ type cliResult struct {
 
 // runCLI executes the taskflow binary in the given working directory with the
 // supplied arguments. Each test should pass its own temp directory as workdir
-// so the CLI creates an isolated .taskflow/tasks.db there.
+// for isolation. The CLI no longer auto-creates a .taskflow/tasks.db: a test
+// must run `init` first (see initProject/addTask) or set TASKFLOW_DIR before
+// invoking a database-touching command.
 func runCLI(t *testing.T, workdir string, args ...string) cliResult {
 	t.Helper()
 	return runCLIWithEnv(t, workdir, nil, args...)
 }
 
 // runCLIWithEnv executes the taskflow binary with custom environment variables.
-// env is a list of "KEY=value" pairs that are appended to the current environment.
+// The current environment is scrubbed of TASKFLOW_DIR and PROJECT_ROOT (and
+// only those two) before the env pairs are appended: a parent TASKFLOW_DIR
+// breaks the anchor tests and PROJECT_ROOT leaks into NewDB's schema
+// lookup. The scrub keeps those keys absent unless a test sets them
+// explicitly, independent of duplicate-key handling (Go's os/exec keeps the
+// LAST duplicate key in cmd.Env, so a parent value would linger for any test
+// that appends no override). HOME is deliberately kept: tests set it with
+// t.Setenv, which propagates through os.Environ().
 func runCLIWithEnv(t *testing.T, workdir string, env []string, args ...string) cliResult {
 	t.Helper()
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Dir = workdir
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
+	scrubbed := make([]string, 0, len(os.Environ())+len(env))
+	for _, kv := range os.Environ() {
+		key, _, ok := strings.Cut(kv, "=")
+		if ok && (key == "TASKFLOW_DIR" || key == "PROJECT_ROOT") {
+			continue
+		}
+		scrubbed = append(scrubbed, kv)
 	}
+	cmd.Env = append(scrubbed, env...)
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -100,14 +115,29 @@ func tempWorkdir(t *testing.T) string {
 	return t.TempDir()
 }
 
-// addTask is a convenience helper that adds a task via the CLI and fails the
-// test if the command does not succeed.
+// addTask is a convenience helper that initializes the project (init) and
+// then adds a task via the CLI, failing the test if either command does not
+// succeed. init must run first because commands no longer auto-create a
+// database.
 func addTask(t *testing.T, workdir, jsonInput string) {
 	t.Helper()
+	initProject(t, workdir)
 	r := runCLI(t, workdir, "add", jsonInput)
 	if r.exitCode != 0 {
 		t.Fatalf("setup: add task failed (exit %d): %s", r.exitCode, r.combined)
 	}
+}
+
+// initProject runs `taskflow init` in dir and fails the test if the command
+// does not succeed. Every test that invokes a database-touching command
+// without going through addTask must call this first (or set TASKFLOW_DIR).
+func initProject(t *testing.T, dir string) cliResult {
+	t.Helper()
+	r := runCLI(t, dir, "init")
+	if r.exitCode != 0 {
+		t.Fatalf("setup: init failed (exit %d): %s", r.exitCode, r.combined)
+	}
+	return r
 }
 
 // --------------------------------------------------------------------------
@@ -156,6 +186,7 @@ func assertError(t *testing.T, r cliResult, msg string) {
 
 func TestAdd_NoArguments(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "add")
 	assertExitNonZero(t, r, "no args")
 	assertError(t, r, "no args")
@@ -163,6 +194,7 @@ func TestAdd_NoArguments(t *testing.T) {
 
 func TestAdd_ValidWithRequiredFields(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "add", `{"id":"add-1","title":"Test Task","milestone":"v1","actor":"tester","description":"A test task"}`)
 	assertExitZero(t, r, "valid add")
 	assertContains(t, r.combined, "Task added successfully", "success message")
@@ -172,6 +204,7 @@ func TestAdd_ValidWithRequiredFields(t *testing.T) {
 
 func TestAdd_WithDescription(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "add", `{"id":"add-2","title":"Task with Description","milestone":"v1","actor":"tester","description":"This is a description"}`)
 	assertExitZero(t, r, "add with description")
 	assertContains(t, r.combined, "Task added successfully", "success message")
@@ -181,6 +214,7 @@ func TestAdd_WithDescription(t *testing.T) {
 
 func TestAdd_WithMilestone(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "add", `{"id":"add-3","title":"Task with Milestone","milestone":"v1.0","actor":"tester","description":"desc"}`)
 	assertExitZero(t, r, "add with milestone")
 	assertContains(t, r.combined, "v1.0", "milestone in output")
@@ -188,6 +222,7 @@ func TestAdd_WithMilestone(t *testing.T) {
 
 func TestAdd_WithActor(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "add", `{"id":"add-4","title":"Task with Actor","milestone":"v1","actor":"developer","description":"desc"}`)
 	assertExitZero(t, r, "add with actor")
 	assertContains(t, r.combined, "developer", "actor in output")
@@ -195,6 +230,7 @@ func TestAdd_WithActor(t *testing.T) {
 
 func TestAdd_AllFields(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "add", `{"id":"add-5","title":"Full Task","milestone":"v2.0","actor":"admin","description":"Full description"}`)
 	assertExitZero(t, r, "add all fields")
 	assertContains(t, r.combined, "Full Task", "title")
@@ -205,6 +241,7 @@ func TestAdd_AllFields(t *testing.T) {
 
 func TestAdd_MultipleTasks(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r1 := runCLI(t, dir, "add", `{"id":"add-6","title":"Task 1","milestone":"v1","actor":"tester","description":"desc"}`)
 	assertExitZero(t, r1, "first task")
 	assertContains(t, r1.combined, "Task added successfully", "first success")
@@ -223,12 +260,14 @@ func TestAdd_Help(t *testing.T) {
 
 func TestAdd_MissingTitle(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "add", `{"id":"add-8","milestone":"v1","actor":"tester","description":"desc"}`)
 	assertError(t, r, "missing title")
 }
 
 func TestAdd_InvalidJSON(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "add", "not-json")
 	assertError(t, r, "invalid json")
 }
@@ -239,6 +278,7 @@ func TestAdd_InvalidJSON(t *testing.T) {
 
 func TestUpdate_NoArguments(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "update")
 	assertExitNonZero(t, r, "no args")
 	assertError(t, r, "no args")
@@ -294,6 +334,7 @@ func TestUpdate_MultipleFields(t *testing.T) {
 
 func TestUpdate_NonExistentTask(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "update", `{"id":"does-not-exist","title":"Nope"}`)
 	assertError(t, r, "non-existent task")
 }
@@ -315,12 +356,42 @@ func TestUpdate_Status(t *testing.T) {
 	assertContains(t, r.combined, "in_progress", "new status")
 }
 
+// Regression for the status-alias pipeline bug: ValidateStatus advertises
+// aliases ("completed", "pending", "timed-out", ...) as valid input, but the
+// db layer only stores canonical statuses (todo, in_progress, done, blocked).
+// Before the fix, an alias passed CLI validation and then failed at the
+// database as UNEXPECTED_ERROR (exit 1). The contract: an accepted alias
+// must update the task and store the canonical value.
+func TestUpdate_StatusAlias(t *testing.T) {
+	dir := tempWorkdir(t)
+	addTask(t, dir, `{"id":"alias-1","title":"Alias Task","milestone":"v1","actor":"tester","description":"d"}`)
+
+	r := runCLI(t, dir, "update", `{"id":"alias-1","status":"completed"}`)
+	assertExitZero(t, r, "update with status alias 'completed'")
+	assertContains(t, r.combined, "Task updated successfully", "update success")
+	assertContains(t, r.combined, "Status: done", "canonical status stored, not the alias")
+	assertNotContains(t, r.combined, "UNEXPECTED_ERROR", "db must not reject a status the CLI accepted")
+}
+
+// "all" is a list-only concept: update must reject it at validation, not
+// pass it to the db as UNEXPECTED_ERROR.
+func TestUpdate_StatusAllRejected(t *testing.T) {
+	dir := tempWorkdir(t)
+	addTask(t, dir, `{"id":"alias-2","title":"T","milestone":"v1","actor":"tester","description":"d"}`)
+
+	r := runCLI(t, dir, "update", `{"id":"alias-2","status":"all"}`)
+	assertExitNonZero(t, r, "'all' is not a storable status")
+	assertContains(t, r.combined, "is not a valid task status", "validation error")
+	assertNotContains(t, r.combined, "UNEXPECTED_ERROR", "rejected at validation, not at the db")
+}
+
 // --------------------------------------------------------------------------
 // Complete command tests (replaces test-complete.sh)
 // --------------------------------------------------------------------------
 
 func TestComplete_NoArguments(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "complete")
 	assertExitNonZero(t, r, "no args")
 	assertError(t, r, "no args")
@@ -359,12 +430,14 @@ func TestComplete_Help(t *testing.T) {
 
 func TestComplete_NonExistentTask(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "complete", `{"id":"does-not-exist"}`)
 	assertError(t, r, "non-existent task")
 }
 
 func TestComplete_InvalidJSON(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "complete", "not-json")
 	assertError(t, r, "invalid json")
 }
@@ -375,6 +448,7 @@ func TestComplete_InvalidJSON(t *testing.T) {
 
 func TestBlock_NoArguments(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "block")
 	assertExitNonZero(t, r, "no args")
 	assertError(t, r, "no args")
@@ -434,6 +508,7 @@ func TestBlock_LongReason(t *testing.T) {
 
 func TestBlock_NonExistentTask(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "block", `{"id":"does-not-exist","reason":"test"}`)
 	assertError(t, r, "non-existent task")
 }
@@ -444,6 +519,7 @@ func TestBlock_NonExistentTask(t *testing.T) {
 
 func TestUnblock_NoArguments(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "unblock")
 	assertExitNonZero(t, r, "no args")
 	assertError(t, r, "no args")
@@ -482,12 +558,14 @@ func TestUnblock_WithDescription(t *testing.T) {
 
 func TestUnblock_MissingID(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "unblock", `{}`)
 	assertError(t, r, "missing id")
 }
 
 func TestUnblock_InvalidJSON(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "unblock", "not-json")
 	assertError(t, r, "invalid json")
 }
@@ -501,6 +579,7 @@ func TestUnblock_Help(t *testing.T) {
 
 func TestUnblock_NonExistentTask(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "unblock", `{"id":"does-not-exist"}`)
 	assertError(t, r, "non-existent task")
 }
@@ -574,6 +653,45 @@ func TestList_FilterByStatus(t *testing.T) {
 	assertExitZero(t, r, "filter by status")
 }
 
+// Read-side regression for the same status-alias bug: list with an alias
+// passed validation, but the db filter exact-matches canonical values, so
+// the alias silently returned zero rows (exit 0, "tasks": []) — the worst
+// failure mode because nothing reports it. The contract: the 'pending'
+// alias must match todo tasks.
+func TestList_StatusAliasPending(t *testing.T) {
+	dir := tempWorkdir(t)
+	seedListTasks(t, dir) // three tasks in status "todo"
+
+	r := runCLI(t, dir, "list", `{"status":"pending"}`)
+	assertExitZero(t, r, "list with status alias 'pending'")
+	assertContains(t, r.combined, `"ID": "list-1"`, "todo tasks match the 'pending' alias")
+	assertContains(t, r.combined, `"Status": "todo"`, "matched tasks show canonical status")
+}
+
+// The alias fix removed the unstorable timed-out aliases: the CLI must
+// reject them with a validation error, not silently match zero rows.
+func TestList_StatusTimedOutRejected(t *testing.T) {
+	dir := tempWorkdir(t)
+	seedListTasks(t, dir)
+
+	r := runCLI(t, dir, "list", `{"status":"timed-out"}`)
+	assertExitNonZero(t, r, "timed-out is not a storable status")
+	assertContains(t, r.combined, "not valid", "validation error, not a silent empty result")
+}
+
+// The list-by-id branch returns a single-task envelope. Regression coverage
+// for the path rewritten when the service pass-through layer was dissolved.
+func TestList_ByID(t *testing.T) {
+	dir := tempWorkdir(t)
+	seedListTasks(t, dir)
+
+	r := runCLI(t, dir, "list", `{"id":"list-2"}`)
+	assertExitZero(t, r, "list by id")
+	assertContains(t, r.combined, `"ID": "list-2"`, "the requested task")
+	assertContains(t, r.combined, `"total": 1`, "single-task envelope total")
+	assertNotContains(t, r.combined, "list-1", "other tasks are not included")
+}
+
 func TestList_CombinedMilestoneAndActor(t *testing.T) {
 	dir := tempWorkdir(t)
 	seedListTasks(t, dir)
@@ -642,6 +760,7 @@ func TestList_ProducesOutput(t *testing.T) {
 
 func TestReset_WithMinutes(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "reset-timedout", `{"minutes":30}`)
 	assertExitZero(t, r, "reset with minutes")
 	// Should not error
@@ -653,6 +772,7 @@ func TestReset_WithMinutes(t *testing.T) {
 
 func TestReset_NoArguments(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "reset-timedout")
 	assertExitNonZero(t, r, "no args")
 	assertError(t, r, "no args")
@@ -660,6 +780,7 @@ func TestReset_NoArguments(t *testing.T) {
 
 func TestReset_LargeTimeout(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "reset-timedout", `{"minutes":1440}`)
 	assertExitZero(t, r, "large timeout")
 }
@@ -673,18 +794,21 @@ func TestReset_Help(t *testing.T) {
 
 func TestReset_OneMinute(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "reset-timedout", `{"minutes":1}`)
 	assertExitZero(t, r, "1 minute timeout")
 }
 
 func TestReset_InvalidJSON(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "reset-timedout", "not-json")
 	assertError(t, r, "invalid json")
 }
 
 func TestReset_ZeroMinutes(t *testing.T) {
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "reset-timedout", `{"minutes":0}`)
 	// Zero minutes may be valid or invalid — just ensure it produces output and doesn't crash.
 	if len(strings.TrimSpace(r.combined)) == 0 {
@@ -714,7 +838,9 @@ func TestAdd_CustomDBPath(t *testing.T) {
 
 func TestDefaultPathUnchanged(t *testing.T) {
 	// When TASKFLOW_DIR is NOT set, .taskflow/tasks.db should still be used.
+	// init must run first: commands no longer auto-create the database.
 	dir := tempWorkdir(t)
+	initProject(t, dir)
 	r := runCLI(t, dir, "add", `{"id":"td-2","title":"Default Path Task","milestone":"v1","actor":"tester","description":"Default path still works"}`)
 	assertExitZero(t, r, "default path unchanged")
 	assertContains(t, r.combined, "Task added successfully", "success message")

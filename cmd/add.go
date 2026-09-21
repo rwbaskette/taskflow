@@ -1,94 +1,62 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/db"
 	"github.com/rwbaskette/taskflow/internal/service"
-	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
 )
 
 var addJSON string
 
 var addCmd = &cobra.Command{
-	Use:     "add",
-	Short:   "Add a new task",
-	Long:    "Add a new task to the task list.\n\nThe task can be specified as a JSON document via argument or stdin.\nFields: id, milestone, title, description, actor (all fields except description are required).",
+	Use:   "add",
+	Short: "Add a new task",
+	Long:  "Add a new task to the task list.\n\nThe task can be specified as a JSON document via argument or stdin.\nFields: id, milestone, title, description, actor (all fields except description are required).",
 	Example: `  task add '{"id":"1","title":"Implement login","milestone":"v1","description":"Add login"}'
   echo '{"id":"2","title":"Fix bug","milestone":"v1","description":"Fix memory leak"}' | task add -
   task add -`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		database, err := db.NewDB(db.DefaultDBPath())
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
+		database := openDB()
 		defer database.Close()
 
-		jsonArg := addJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("json", "provide JSON document via argument or stdin"))
-			return
-		}
+		doc := jsonDoc(addJSON, args, "")
 
-		doc, err := service.ParseJSONFromArg(jsonArg)
+		id, err := service.GetIDField(doc)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
-
-		id, _ := service.GetStringFieldTrim(doc, "id")
 		milestone, _ := service.GetStringFieldTrim(doc, "milestone")
 		title, _ := service.GetStringFieldTrim(doc, "title")
 		description, _ := service.GetStringFieldTrim(doc, "description")
 		actor, _ := service.GetStringFieldTrim(doc, "actor")
 
-		if err := cliErrors.ValidateID(id); err != nil {
-			cliErrors.HandleError(err)
-			return
+		if err := clierr.ValidateMilestone(milestone); err != nil {
+			fatal(err)
 		}
-		if err := cliErrors.ValidateMilestone(milestone); err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
-		if err := cliErrors.ValidateTitle(title); err != nil {
-			cliErrors.HandleError(err)
-			return
+		if err := clierr.ValidateTitle(title); err != nil {
+			fatal(err)
 		}
 		if description == "" {
-			cliErrors.HandleError(cliErrors.MissingArgumentError("description", "description is required in JSON document"))
-			return
+			fatal(clierr.MissingArgumentError("description", "description is required in JSON document"))
 		}
 
-		input := &service.AddTaskInput{
+		task := &db.Task{
 			ID:          id,
 			Milestone:   milestone,
 			Title:       title,
 			Description: description,
+			Status:      "todo",
 			Actor:       actor,
 		}
 
-		result, err := service.AddTask(database, input)
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
+		if err := database.CreateTask(task); err != nil {
+			fatal(err)
 		}
 
-		fmt.Printf("Task added successfully:\n")
-		fmt.Printf("  ID: %s\n", result.ID)
-		fmt.Printf("  Title: %s\n", result.Title)
-		fmt.Printf("  Description: %s\n", result.Description)
-		fmt.Printf("  Milestone: %s\n", result.Milestone)
-		if result.Actor != "" {
-			fmt.Printf("  Actor: %s\n", result.Actor)
-		}
-		fmt.Printf("  Status: %s\n", result.Status)
+		printTaskResult("added", task)
 	},
 }
 

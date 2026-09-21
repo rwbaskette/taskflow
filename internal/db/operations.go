@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
-
-	"github.com/rwbaskette/taskflow/internal/timeutil"
 )
 
 // Task represents a task in the database
@@ -19,45 +18,98 @@ type Task struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description,omitempty"`
 	Status      string    `json:"status"`
-	Priority    int       `json:"priority,omitempty"`
 	Actor       string    `json:"actor,omitempty"`
 	BlockedBy   []string  `json:"blocked_by,omitempty"`
 	Created     time.Time `json:"created"`
 	LastUpdated time.Time `json:"last_updated"`
 }
 
-// SortBy defines the field to sort by
-type SortBy string
+// ValidSortKeys are the canonical sort keys accepted by TaskFilter.SortBy.
+var ValidSortKeys = []string{
+	"status",
+	"milestone",
+	"created",
+	"updated",
+	"id",
+	"title",
+	"description",
+	"actor",
+}
 
-const (
-	SortByStatus      SortBy = "status"
-	SortByPriority    SortBy = "priority"
-	SortByMilestone   SortBy = "milestone"
-	SortByCreated     SortBy = "created"
-	SortByUpdated     SortBy = "updated"
-	SortByID          SortBy = "id"
-	SortBySprint      SortBy = "sprint"
-	SortByTitle       SortBy = "title"
-	SortByDescription SortBy = "description"
-	SortByActor       SortBy = "actor"
-)
+// sortClauses maps each valid sort key to its ORDER BY clause. Keys not in
+// the map, including the empty string, fall back to the default clause.
+var sortClauses = map[string]string{
+	"status":      " ORDER BY status ASC",
+	"milestone":   " ORDER BY milestone ASC, last_updated DESC",
+	"created":     " ORDER BY created DESC",
+	"updated":     " ORDER BY last_updated DESC",
+	"id":          " ORDER BY id ASC",
+	"title":       " ORDER BY title ASC",
+	"description": " ORDER BY description ASC",
+	"actor":       " ORDER BY actor ASC",
+}
 
-// ValidSortByValues returns all valid sort by values
-func ValidSortByValues() []string {
-	return []string{"status", "priority", "milestone", "created", "updated", "id", "sprint", "title", "description", "actor"}
+// sortOrder returns the ORDER BY clause for the given raw sort key.
+// Unknown keys (including "") fall back to the default ordering.
+func sortOrder(sortBy string) string {
+	if clause, ok := sortClauses[sortBy]; ok {
+		return clause
+	}
+	return " ORDER BY last_updated DESC"
 }
 
 // TaskFilter contains optional filters for listing tasks
 type TaskFilter struct {
 	Milestone string
-	Sprint    string
 	Status    string
 	Actor     string
 	ID        string
-	SortBy    SortBy
+	SortBy    string
 	Limit     int
 	Offset    int
 }
+
+// scanTask scans one row of the standard task SELECT (id, milestone, sprint,
+// title, description, status, actor, blocked_by, created, last_updated) into a
+// Task. It unmarshals blocked_by (SQL NULL or empty means no blockers) and
+// parses created/last_updated as RFC3339. The DB always writes those
+// timestamps in RFC3339, so a parse failure means corrupt data and is
+// propagated.
+func scanTask(scan interface{ Scan(dest ...any) error }) (Task, error) {
+	var t Task
+	var createdStr string
+	var lastUpdatedStr string
+	var blockedByStr *string
+
+	if err := scan.Scan(
+		&t.ID, &t.Milestone, &t.Sprint, &t.Title, &t.Description,
+		&t.Status, &t.Actor, &blockedByStr, &createdStr, &lastUpdatedStr,
+	); err != nil {
+		return Task{}, err
+	}
+
+	if blockedByStr != nil && *blockedByStr != "" {
+		if err := json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy); err != nil {
+			return Task{}, fmt.Errorf("parse blocked_by: %w", err)
+		}
+	}
+
+	var err error
+	t.Created, err = time.Parse(time.RFC3339, createdStr)
+	if err != nil {
+		return Task{}, fmt.Errorf("parse created: %w", err)
+	}
+
+	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
+	if err != nil {
+		return Task{}, fmt.Errorf("parse last_updated: %w", err)
+	}
+
+	return t, nil
+}
+
+// ValidStatuses are the canonical status values stored in the database.
+var ValidStatuses = []string{"todo", "in_progress", "done", "blocked"}
 
 // validateTask validates task data before creation/update
 func validateTask(t *Task) error {
@@ -66,22 +118,15 @@ func validateTask(t *Task) error {
 	}
 
 	if strings.TrimSpace(t.ID) == "" {
-		return NewInvalidTaskError("id", "ID cannot be empty")
+		return &InvalidTaskError{Field: "id", Message: "ID cannot be empty"}
 	}
 
 	if strings.TrimSpace(t.Title) == "" {
-		return NewInvalidTaskError("title", "title cannot be empty")
+		return &InvalidTaskError{Field: "title", Message: "title cannot be empty"}
 	}
 
-	validStatuses := map[string]bool{
-		"todo":        true,
-		"in_progress": true,
-		"done":        true,
-		"blocked":     true,
-	}
-
-	if !validStatuses[t.Status] {
-		return NewInvalidTaskError("status", "status must be one of: todo, in_progress, done, blocked")
+	if !slices.Contains(ValidStatuses, t.Status) {
+		return &InvalidTaskError{Field: "status", Message: "status must be one of: " + strings.Join(ValidStatuses, ", ")}
 	}
 
 	return nil
@@ -97,13 +142,14 @@ func (db *DB) CreateTask(t *Task) error {
 		return err
 	}
 
-	// Check if task already exists
-	exists, err := db.taskExists(t.ID)
+	// Check if the task already exists
+	var exists bool
+	err := db.conn.QueryRow(`SELECT EXISTS(SELECT 1 FROM tasks WHERE id = ?)`, t.ID).Scan(&exists)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to check task existence: %w", err)
 	}
 	if exists {
-		return NewTaskAlreadyExistsError(t.ID)
+		return &TaskAlreadyExistsError{ID: t.ID}
 	}
 
 	// Set Created to now if not set
@@ -112,7 +158,7 @@ func (db *DB) CreateTask(t *Task) error {
 	}
 	// Set LastUpdated to now if not set
 	if t.LastUpdated.IsZero() {
-		t.LastUpdated = timeutil.Now()
+		t.LastUpdated = time.Now().UTC()
 	}
 
 	blockedByJSON, _ := json.Marshal(t.BlockedBy)
@@ -141,64 +187,6 @@ func (db *DB) CreateTask(t *Task) error {
 	return nil
 }
 
-// CreateTaskTx creates a new task within a transaction
-// Deprecated: Not used in production code, only in tests
-func (db *DB) CreateTaskTx(tx *sql.Tx, t *Task) error {
-	if db == nil || db.conn == nil {
-		return ErrNilDB
-	}
-	if tx == nil {
-		return errors.New("nil transaction provided")
-	}
-
-	if err := validateTask(t); err != nil {
-		return err
-	}
-
-	// Check if task already exists within transaction
-	exists, err := db.taskExistsTx(tx, t.ID)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return NewTaskAlreadyExistsError(t.ID)
-	}
-
-	// Set Created to now if not set
-	if t.Created.IsZero() {
-		t.Created = time.Now().UTC()
-	}
-	// Set LastUpdated to now if not set
-	if t.LastUpdated.IsZero() {
-		t.LastUpdated = timeutil.Now()
-	}
-
-	blockedByJSON, _ := json.Marshal(t.BlockedBy)
-
-	query := `
-		INSERT INTO tasks (id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-
-	_, err = tx.Exec(query,
-		t.ID,
-		t.Milestone,
-		t.Sprint,
-		t.Title,
-		t.Description,
-		t.Status,
-		t.Actor,
-		string(blockedByJSON),
-		t.Created.Format(time.RFC3339),
-		t.LastUpdated.Format(time.RFC3339),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create task in transaction: %w", err)
-	}
-
-	return nil
-}
-
 // ReadTask retrieves a task by ID
 func (db *DB) ReadTask(id string) (*Task, error) {
 	if db == nil || db.conn == nil {
@@ -215,100 +203,12 @@ func (db *DB) ReadTask(id string) (*Task, error) {
 		WHERE id = ?
 	`
 
-	var t Task
-	var createdStr string
-	var lastUpdatedStr string
-	var blockedByStr *string
-
-	err := db.conn.QueryRow(query, id).Scan(
-		&t.ID,
-		&t.Milestone,
-		&t.Sprint,
-		&t.Title,
-		&t.Description,
-		&t.Status,
-		&t.Actor,
-		&blockedByStr,
-		&createdStr,
-		&lastUpdatedStr,
-	)
-	if blockedByStr != nil && *blockedByStr != "" {
-		json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
-	}
+	t, err := scanTask(db.conn.QueryRow(query, id))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, NewTaskNotFoundError(id)
+			return nil, &TaskNotFoundError{ID: id}
 		}
 		return nil, fmt.Errorf("failed to read task: %w", err)
-	}
-
-	t.Created, err = time.Parse(time.RFC3339, createdStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse created: %w", err)
-	}
-
-	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse last_updated: %w", err)
-	}
-
-	return &t, nil
-}
-
-// ReadTaskTx retrieves a task by ID within a transaction
-// Deprecated: Not used in production code, only in tests
-func (db *DB) ReadTaskTx(tx *sql.Tx, id string) (*Task, error) {
-	if tx == nil {
-		return nil, errors.New("nil transaction provided")
-	}
-
-	if strings.TrimSpace(id) == "" {
-		return nil, ErrInvalidID
-	}
-
-	query := `
-		SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated
-		FROM tasks
-		WHERE id = ?
-	`
-
-	var t Task
-	var createdStr string
-	var lastUpdatedStr string
-	var blockedByRaw interface{}
-
-	err := tx.QueryRow(query, id).Scan(
-		&t.ID,
-		&t.Milestone,
-		&t.Sprint,
-		&t.Title,
-		&t.Description,
-		&t.Status,
-		&t.Actor,
-		&blockedByRaw,
-		&createdStr,
-		&lastUpdatedStr,
-	)
-	if blockedByRaw != nil {
-		if s, ok := blockedByRaw.(string); ok && s != "" {
-			json.Unmarshal([]byte(s), &t.BlockedBy)
-		}
-	}
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, NewTaskNotFoundError(id)
-		}
-		return nil, fmt.Errorf("failed to read task in transaction: %w", err)
-	}
-
-	t.Created, err = time.Parse(time.RFC3339, createdStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse created in transaction: %w", err)
-	}
-
-	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse last_updated in transaction: %w", err)
 	}
 
 	return &t, nil
@@ -325,13 +225,9 @@ func (db *DB) UpdateTask(t *Task) error {
 	}
 
 	// Always update LastUpdated to current time
-	t.LastUpdated = timeutil.Now()
+	t.LastUpdated = time.Now().UTC()
 
-	var blockedByParam interface{}
-	if t.BlockedBy != nil {
-		blockedByJSON, _ := json.Marshal(t.BlockedBy)
-		blockedByParam = string(blockedByJSON)
-	}
+	blockedByJSON, _ := json.Marshal(t.BlockedBy)
 
 	query := `
 		UPDATE tasks
@@ -345,7 +241,7 @@ func (db *DB) UpdateTask(t *Task) error {
 		t.Description,
 		t.Status,
 		t.Actor,
-		blockedByParam,
+		string(blockedByJSON),
 		t.LastUpdated.Format(time.RFC3339),
 		t.ID,
 	)
@@ -358,256 +254,92 @@ func (db *DB) UpdateTask(t *Task) error {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		return NewTaskNotFoundError(t.ID)
+		return &TaskNotFoundError{ID: t.ID}
 	}
 
 	return nil
 }
 
-// UpdateTaskTx updates an existing task within a transaction
-// Deprecated: Not used in production code, only in tests
-func (db *DB) UpdateTaskTx(tx *sql.Tx, t *Task) error {
-	if tx == nil {
-		return errors.New("nil transaction provided")
-	}
-
-	if err := validateTask(t); err != nil {
-		return err
-	}
-
-	// Always update LastUpdated to current time
-	t.LastUpdated = timeutil.Now()
-
-	var blockedByParam interface{}
-	if t.BlockedBy != nil {
-		blockedByJSON, _ := json.Marshal(t.BlockedBy)
-		blockedByParam = string(blockedByJSON)
-	}
-
-	query := `
-		UPDATE tasks
-		SET milestone = ?, title = ?, description = ?, status = ?, actor = ?, blocked_by = ?, last_updated = ?
-		WHERE id = ?
-	`
-
-	result, err := tx.Exec(query,
-		t.Milestone,
-		t.Title,
-		t.Description,
-		t.Status,
-		t.Actor,
-		blockedByParam,
-		t.LastUpdated.Format(time.RFC3339),
-		t.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update task in transaction: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return NewTaskNotFoundError(t.ID)
-	}
-
-	return nil
-}
-
-// DeleteTask deletes a task by ID
-func (db *DB) DeleteTask(id string) error {
+// SoftDeleteTask moves a task to the deleted_tasks table with a deleted_on
+// timestamp. A single INSERT..SELECT copies the row verbatim (including
+// blocked_by) and stamps deleted_on, so no pre-read scan or parse is needed.
+// It returns the deleted_on value it stored, so callers display exactly the
+// timestamp that was persisted instead of guessing their own.
+func (db *DB) SoftDeleteTask(id string) (time.Time, error) {
 	if db == nil || db.conn == nil {
-		return ErrNilDB
+		return time.Time{}, ErrNilDB
 	}
 
 	if strings.TrimSpace(id) == "" {
-		return ErrInvalidID
-	}
-
-	query := `DELETE FROM tasks WHERE id = ?`
-
-	result, err := db.conn.Exec(query, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete task: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return NewTaskNotFoundError(id)
-	}
-
-	return nil
-}
-
-// SoftDeleteTask moves a task to the deleted_tasks table with a deleted_on timestamp
-func (db *DB) SoftDeleteTask(id string) error {
-	if db == nil || db.conn == nil {
-		return ErrNilDB
-	}
-
-	if strings.TrimSpace(id) == "" {
-		return ErrInvalidID
+		return time.Time{}, ErrInvalidID
 	}
 
 	tx, err := db.conn.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return time.Time{}, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	var t Task
-	var createdStr string
-	var lastUpdatedStr string
-	var blockedByRaw interface{}
-
-	selectQuery := `
-		SELECT id, milestone, sprint, title, description, status, priority, actor, blocked_by, created, last_updated
+	deletedOn := time.Now().UTC()
+	insertQuery := `
+		INSERT INTO deleted_tasks (id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated, deleted_on)
+		SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated, ?
 		FROM tasks WHERE id = ?
 	`
-	err = tx.QueryRow(selectQuery, id).Scan(
-		&t.ID, &t.Milestone, &t.Sprint, &t.Title, &t.Description,
-		&t.Status, &t.Priority, &t.Actor, &blockedByRaw, &createdStr, &lastUpdatedStr,
-	)
+	result, err := tx.Exec(insertQuery, deletedOn.Format(time.RFC3339), id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return NewTaskNotFoundError(id)
-		}
-		return fmt.Errorf("failed to read task: %w", err)
-	}
-	if blockedByRaw != nil {
-		if s, ok := blockedByRaw.(string); ok && s != "" {
-			json.Unmarshal([]byte(s), &t.BlockedBy)
-		}
+		return time.Time{}, fmt.Errorf("failed to insert into deleted_tasks: %w", err)
 	}
 
-	t.Created, _ = time.Parse(time.RFC3339, createdStr)
-	t.LastUpdated, _ = time.Parse(time.RFC3339, lastUpdatedStr)
-	deletedOn := timeutil.Now()
-
-	blockedByJSON, _ := json.Marshal(t.BlockedBy)
-
-	insertQuery := `
-		INSERT INTO deleted_tasks (id, milestone, sprint, title, description, status, priority, actor, blocked_by, created, last_updated, deleted_on)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-	_, err = tx.Exec(insertQuery,
-		t.ID, t.Milestone, t.Sprint, t.Title, t.Description,
-		t.Status, t.Priority, t.Actor, string(blockedByJSON),
-		t.Created.Format(time.RFC3339), t.LastUpdated.Format(time.RFC3339),
-		deletedOn.Format(time.RFC3339),
-	)
+	// RowsAffected == 0 means the SELECT matched no row, i.e. the task
+	// does not exist.
+	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to insert into deleted_tasks: %w", err)
+		return time.Time{}, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return time.Time{}, &TaskNotFoundError{ID: id}
 	}
 
 	deleteQuery := `DELETE FROM tasks WHERE id = ?`
-	result, err := tx.Exec(deleteQuery, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete from tasks: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return NewTaskNotFoundError(id)
+	if _, err := tx.Exec(deleteQuery, id); err != nil {
+		return time.Time{}, fmt.Errorf("failed to delete from tasks: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		return time.Time{}, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	return nil
+	return deletedOn, nil
 }
 
-// GetTaskByID retrieves a task by its ID
-func (db *DB) GetTaskByID(id string) (*Task, error) {
-	if db == nil || db.conn == nil {
-		return nil, ErrNilDB
+// buildTaskWhere builds the " AND ..." WHERE suffix and query args shared by
+// ListTasks and CountTasks so the filter conditions cannot drift apart.
+func buildTaskWhere(filter TaskFilter) (string, []interface{}) {
+	where := ""
+	args := []interface{}{}
+
+	if filter.Milestone != "" {
+		where += " AND milestone = ?"
+		args = append(args, filter.Milestone)
 	}
 
-	if strings.TrimSpace(id) == "" {
-		return nil, ErrInvalidID
+	if filter.Status != "" {
+		where += " AND status = ?"
+		args = append(args, filter.Status)
 	}
 
-	query := `
-		SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated
-		FROM tasks
-		WHERE id = ?
-	`
-
-	var t Task
-	var createdStr string
-	var lastUpdatedStr string
-	var blockedByStr *string
-
-	err := db.conn.QueryRow(query, id).Scan(
-		&t.ID,
-		&t.Milestone,
-		&t.Sprint,
-		&t.Title,
-		&t.Description,
-		&t.Status,
-		&t.Actor,
-		&blockedByStr,
-		&createdStr,
-		&lastUpdatedStr,
-	)
-	if blockedByStr != nil && *blockedByStr != "" {
-		json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
-	}
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, NewTaskNotFoundError(id)
-		}
-		return nil, fmt.Errorf("failed to get task: %w", err)
+	if filter.Actor != "" {
+		where += " AND actor = ?"
+		args = append(args, filter.Actor)
 	}
 
-	t.Created, err = time.Parse(time.RFC3339, createdStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse created: %w", err)
+	if filter.ID != "" {
+		where += " AND id = ?"
+		args = append(args, filter.ID)
 	}
 
-	t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse last_updated: %w", err)
-	}
-
-	return &t, nil
-}
-
-// DeleteTaskTx deletes a task by ID within a transaction
-// Deprecated: Not used in production code, only in tests
-func (db *DB) DeleteTaskTx(tx *sql.Tx, id string) error {
-	if tx == nil {
-		return errors.New("nil transaction provided")
-	}
-
-	if strings.TrimSpace(id) == "" {
-		return ErrInvalidID
-	}
-
-	query := `DELETE FROM tasks WHERE id = ?`
-
-	result, err := tx.Exec(query, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete task in transaction: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return NewTaskNotFoundError(id)
-	}
-
-	return nil
+	return where, args
 }
 
 // ListTasks retrieves tasks with optional filters
@@ -618,35 +350,11 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 
 	// Build query with filters
 	query := "SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated FROM tasks WHERE 1=1"
-	args := []interface{}{}
-
-	if filter.Milestone != "" {
-		query += " AND milestone = ?"
-		args = append(args, filter.Milestone)
-	}
-
-	if filter.Sprint != "" {
-		query += " AND sprint = ?"
-		args = append(args, filter.Sprint)
-	}
-
-	if filter.Status != "" {
-		query += " AND status = ?"
-		args = append(args, filter.Status)
-	}
-
-	if filter.Actor != "" {
-		query += " AND actor = ?"
-		args = append(args, filter.Actor)
-	}
-
-	if filter.ID != "" {
-		query += " AND id = ?"
-		args = append(args, filter.ID)
-	}
+	where, args := buildTaskWhere(filter)
+	query += where
 
 	// Apply sorting
-	orderBy := getSortOrder(filter.SortBy)
+	orderBy := sortOrder(filter.SortBy)
 	query += orderBy
 
 	// Apply pagination
@@ -675,38 +383,9 @@ func (db *DB) ListTasks(filter TaskFilter) ([]Task, error) {
 
 	var tasks []Task
 	for rows.Next() {
-		var t Task
-		var createdStr string
-		var lastUpdatedStr string
-		var blockedByStr *string
-
-		err := rows.Scan(
-			&t.ID,
-			&t.Milestone,
-			&t.Sprint,
-			&t.Title,
-			&t.Description,
-			&t.Status,
-			&t.Actor,
-			&blockedByStr,
-			&createdStr,
-			&lastUpdatedStr,
-		)
+		t, err := scanTask(rows)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan task: %w", err)
-		}
-		if blockedByStr != nil && *blockedByStr != "" {
-			json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
-		}
-
-		t.Created, err = time.Parse(time.RFC3339, createdStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse created: %w", err)
-		}
-
-		t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse last_updated: %w", err)
 		}
 
 		tasks = append(tasks, t)
@@ -735,32 +414,8 @@ func (db *DB) CountTasks(filter TaskFilter) (int, error) {
 	// Build the COUNT query using the same WHERE conditions as ListTasks
 	// but without ORDER BY, LIMIT, or OFFSET.
 	query := "SELECT COUNT(*) FROM tasks WHERE 1=1"
-	args := []interface{}{}
-
-	if filter.Milestone != "" {
-		query += " AND milestone = ?"
-		args = append(args, filter.Milestone)
-	}
-
-	if filter.Sprint != "" {
-		query += " AND sprint = ?"
-		args = append(args, filter.Sprint)
-	}
-
-	if filter.Status != "" {
-		query += " AND status = ?"
-		args = append(args, filter.Status)
-	}
-
-	if filter.Actor != "" {
-		query += " AND actor = ?"
-		args = append(args, filter.Actor)
-	}
-
-	if filter.ID != "" {
-		query += " AND id = ?"
-		args = append(args, filter.ID)
-	}
+	where, args := buildTaskWhere(filter)
+	query += where
 
 	var count int
 	err := db.conn.QueryRow(query, args...).Scan(&count)
@@ -771,336 +426,61 @@ func (db *DB) CountTasks(filter TaskFilter) (int, error) {
 	return count, nil
 }
 
-// ListTasksTx retrieves tasks with optional filters within a transaction
-// Deprecated: Not used in production code, only in tests
-func (db *DB) ListTasksTx(tx *sql.Tx, filter TaskFilter) ([]Task, error) {
-	if tx == nil {
-		return nil, errors.New("nil transaction provided")
-	}
-
-	// Build query with filters
-	query := "SELECT id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated FROM tasks WHERE 1=1"
-	args := []interface{}{}
-
-	if filter.Milestone != "" {
-		query += " AND milestone = ?"
-		args = append(args, filter.Milestone)
-	}
-
-	if filter.Sprint != "" {
-		query += " AND sprint = ?"
-		args = append(args, filter.Sprint)
-	}
-
-	if filter.Status != "" {
-		query += " AND status = ?"
-		args = append(args, filter.Status)
-	}
-
-	if filter.Actor != "" {
-		query += " AND actor = ?"
-		args = append(args, filter.Actor)
-	}
-
-	if filter.ID != "" {
-		query += " AND id = ?"
-		args = append(args, filter.ID)
-	}
-
-	orderBy := getSortOrder(filter.SortBy)
-	query += orderBy
-
-	// Apply pagination
-	// SQLite requires LIMIT when using OFFSET
-	if filter.Offset > 0 {
-		if filter.Limit > 0 {
-			query += " LIMIT ?"
-			args = append(args, filter.Limit)
-		} else {
-			// Use a large default limit when only offset is specified
-			query += " LIMIT ?"
-			args = append(args, 10000)
-		}
-		query += " OFFSET ?"
-		args = append(args, filter.Offset)
-	} else if filter.Limit > 0 {
-		query += " LIMIT ?"
-		args = append(args, filter.Limit)
-	}
-
-	rows, err := tx.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tasks in transaction: %w", err)
-	}
-	defer rows.Close()
-
-	var tasks []Task
-	for rows.Next() {
-		var t Task
-		var createdStr string
-		var lastUpdatedStr string
-		var blockedByStr *string
-
-		err := rows.Scan(
-			&t.ID,
-			&t.Milestone,
-			&t.Sprint,
-			&t.Title,
-			&t.Description,
-			&t.Status,
-			&t.Actor,
-			&blockedByStr,
-			&createdStr,
-			&lastUpdatedStr,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan task: %w", err)
-		}
-		if blockedByStr != nil && *blockedByStr != "" {
-			json.Unmarshal([]byte(*blockedByStr), &t.BlockedBy)
-		}
-
-		t.Created, err = time.Parse(time.RFC3339, createdStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse created: %w", err)
-		}
-
-		t.LastUpdated, err = time.Parse(time.RFC3339, lastUpdatedStr)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse last_updated: %w", err)
-		}
-
-		tasks = append(tasks, t)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating tasks: %w", err)
-	}
-
-	if tasks == nil {
-		tasks = []Task{}
-	}
-
-	return tasks, nil
-}
-
-// BeginTx starts a new transaction
-func (db *DB) BeginTx() (*sql.Tx, error) {
+// UnblockTask transitions a task from 'blocked' to 'todo' status in a single
+// atomic database operation. The WHERE clause includes a status = 'blocked'
+// guard to prevent unauthorized status transitions. The blocked_by field is
+// set to SQL NULL and last_updated is stamped with the current UTC time. If a
+// non-empty newDescription is provided, it overwrites the existing
+// description; otherwise the description is preserved unchanged.
+//
+// On success it returns the freshly read task, so callers see the true stored
+// state (including the real last_updated timestamp). If the task does not
+// exist it returns *TaskNotFoundError; if it exists but is not in 'blocked'
+// status it returns *TaskNotBlockedError.
+func (db *DB) UnblockTask(id string, newDescription string) (*Task, error) {
 	if db == nil || db.conn == nil {
 		return nil, ErrNilDB
 	}
 
-	tx, err := db.conn.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	return tx, nil
-}
-
-// getSortOrder returns the ORDER BY clause based on the sort field
-func getSortOrder(sortBy SortBy) string {
-	switch sortBy {
-	case SortByStatus:
-		return " ORDER BY status ASC"
-	case SortByPriority:
-		return " ORDER BY priority ASC"
-	case SortByMilestone:
-		return " ORDER BY milestone ASC, last_updated DESC"
-	case SortByCreated:
-		return " ORDER BY created DESC"
-	case SortByUpdated:
-		return " ORDER BY last_updated DESC"
-	case SortByID:
-		return " ORDER BY id ASC"
-	case SortBySprint:
-		return " ORDER BY sprint ASC"
-	case SortByTitle:
-		return " ORDER BY title ASC"
-	case SortByDescription:
-		return " ORDER BY description ASC"
-	case SortByActor:
-		return " ORDER BY actor ASC"
-	default:
-		return " ORDER BY last_updated DESC"
-	}
-}
-
-// taskExists checks if a task exists in the database
-func (db *DB) taskExists(id string) (bool, error) {
-	query := `SELECT EXISTS(SELECT 1 FROM tasks WHERE id = ? LIMIT 1)`
-	var exists bool
-	err := db.conn.QueryRow(query, id).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("failed to check task existence: %w", err)
-	}
-	return exists, nil
-}
-
-// taskExistsTx checks if a task exists within a transaction
-func (db *DB) taskExistsTx(tx *sql.Tx, id string) (bool, error) {
-	query := `SELECT EXISTS(SELECT 1 FROM tasks WHERE id = ? LIMIT 1)`
-	var exists bool
-	err := tx.QueryRow(query, id).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("failed to check task existence in transaction: %w", err)
-	}
-	return exists, nil
-}
-
-// UnblockTask transitions a task from 'blocked' to 'todo' status in a single
-// atomic database operation. The WHERE clause includes a status = 'blocked'
-// guard to prevent unauthorized status transitions. The blocked_by field is
-// set to SQL NULL and the last_updated field is refreshed to the current UTC
-// timestamp. If a new description is provided, it overwrites the existing
-// description; otherwise the description is preserved unchanged.
-//
-// Returns NewTaskNotFoundError if the task does not exist or is not in
-// 'blocked' status (0 rows affected).
-func (db *DB) UnblockTask(id string, newDescription *string, now time.Time) error {
-	if db == nil || db.conn == nil {
-		return ErrNilDB
-	}
-
 	if strings.TrimSpace(id) == "" {
-		return ErrInvalidID
+		return nil, ErrInvalidID
 	}
 
-	// Determine the description value to use.
-	// If newDescription is nil, we use a placeholder that preserves the existing value
-	// via a CASE expression in the UPDATE.
-	var descriptionClause string
-
-	if newDescription != nil && *newDescription != "" {
-		// Overwrite with the new description
-		descriptionClause = "description = ?, "
-	} else {
-		// Preserve the existing description - use a CASE expression
-		// that sets description to itself (no-op) when no new value is provided.
-		// We use a placeholder with a special marker, but since we can't use
-		// raw SQL expressions with parameterized queries, we'll use a different
-		// approach: construct the SQL dynamically.
-		descriptionClause = ""
+	// Build the SET clause: include description only when a new value is given.
+	set := "last_updated = ?"
+	args := []interface{}{time.Now().UTC().Format(time.RFC3339)}
+	if newDescription != "" {
+		set = "description = ?, " + set
+		args = append([]interface{}{newDescription}, args...)
 	}
 
-	// Build the UPDATE query dynamically based on whether description is being updated.
-	var query string
-	var args []interface{}
-
-	if descriptionClause != "" {
-		query = `
-			UPDATE tasks
-			SET status = 'todo',
-			    blocked_by = NULL,
-			    ` + descriptionClause + `last_updated = ?
-			WHERE id = ? AND status = 'blocked'
-		`
-		args = []interface{}{
-			*newDescription,
-			now.Format(time.RFC3339),
-			id,
-		}
-	} else {
-		query = `
-			UPDATE tasks
-			SET status = 'todo',
-			    blocked_by = NULL,
-			    last_updated = ?
-			WHERE id = ? AND status = 'blocked'
-		`
-		args = []interface{}{
-			now.Format(time.RFC3339),
-			id,
-		}
-	}
+	query := `
+		UPDATE tasks
+		SET status = 'todo',
+		    blocked_by = NULL,
+		    ` + set + `
+		WHERE id = ? AND status = 'blocked'
+	`
+	args = append(args, id)
 
 	result, err := db.conn.Exec(query, args...)
 	if err != nil {
-		return fmt.Errorf("failed to unblock task: %w", err)
+		return nil, fmt.Errorf("failed to unblock task: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
+		return nil, fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
-		// Either the task doesn't exist or it's not in 'blocked' status.
-		// We return TaskNotFoundError for consistency with other operations.
-		return NewTaskNotFoundError(id)
-	}
-
-	return nil
-}
-
-// UnblockTaskTx transitions a task from 'blocked' to 'todo' status within a
-// transaction. This is the transactional variant of UnblockTask.
-//
-// Deprecated: Not used in production code, only in tests.
-func (db *DB) UnblockTaskTx(tx *sql.Tx, id string, newDescription *string, now time.Time) error {
-	if db == nil || db.conn == nil {
-		return ErrNilDB
-	}
-
-	if tx == nil {
-		return errors.New("nil transaction provided")
-	}
-
-	if strings.TrimSpace(id) == "" {
-		return ErrInvalidID
-	}
-
-	// Determine the description value to use.
-	var descriptionClause string
-
-	if newDescription != nil && *newDescription != "" {
-		descriptionClause = "description = ?, "
-	} else {
-		descriptionClause = ""
-	}
-
-	// Build the UPDATE query dynamically based on whether description is being updated.
-	var query string
-	var args []interface{}
-
-	if descriptionClause != "" {
-		query = `
-			UPDATE tasks
-			SET status = 'todo',
-			    blocked_by = NULL,
-			    ` + descriptionClause + `last_updated = ?
-			WHERE id = ? AND status = 'blocked'
-		`
-		args = []interface{}{
-			*newDescription,
-			now.Format(time.RFC3339),
-			id,
+		// Either the task doesn't exist or it is not in 'blocked' status.
+		// ReadTask distinguishes the two cases.
+		task, err := db.ReadTask(id)
+		if err != nil {
+			return nil, err // *TaskNotFoundError
 		}
-	} else {
-		query = `
-			UPDATE tasks
-			SET status = 'todo',
-			    blocked_by = NULL,
-			    last_updated = ?
-			WHERE id = ? AND status = 'blocked'
-		`
-		args = []interface{}{
-			now.Format(time.RFC3339),
-			id,
-		}
+		return nil, &TaskNotBlockedError{ID: id, Status: task.Status}
 	}
 
-	result, err := tx.Exec(query, args...)
-	if err != nil {
-		return fmt.Errorf("failed to unblock task in transaction: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return NewTaskNotFoundError(id)
-	}
-
-	return nil
+	return db.ReadTask(id)
 }

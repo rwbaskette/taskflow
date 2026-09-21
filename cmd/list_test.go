@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -110,7 +113,7 @@ func TestListCmdExecute(t *testing.T) {
 func TestListCmdHelp(t *testing.T) {
 	cmd := setupListCommand()
 
-	buf := NewOutputBuffer()
+	buf := new(bytes.Buffer)
 	cmd.SetOutput(buf)
 
 	err := cmd.Help()
@@ -181,57 +184,62 @@ func TestListCompletionRegistration(t *testing.T) {
 	t.Log("Testing flag completion registration")
 }
 
-func TestParseLimit(t *testing.T) {
-	tests := []struct {
-		input   string
-		wantVal int
-		wantErr bool
-	}{
-		{"", 20, false},
-		{"10", 10, false},
-		{"0", 0, false},
-		{"100", 100, false},
-		{"abc", 0, true},
-		{"-1", -1, false},
+// listTotal runs the list command with the given filter and returns the
+// reported total count.
+func listTotal(t *testing.T, binPath, dbDir, filter string) float64 {
+	t.Helper()
+
+	stdout, stderr, err := runTaskflow(t, binPath, dbDir, "list", filter)
+	if err != nil {
+		t.Fatalf("task list %s failed: %v\nstderr: %s", filter, err, stderr)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			val, err := ParseLimit(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseLimit() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if val != tt.wantVal {
-				t.Errorf("ParseLimit() = %v, want %v", val, tt.wantVal)
-			}
-		})
+	// The output may carry text around the JSON body; extract it.
+	start := strings.Index(stdout, "{")
+	end := strings.LastIndex(stdout, "}")
+	if start == -1 || end <= start {
+		t.Fatalf("could not find JSON output for list %s: %q", filter, stdout)
 	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(stdout[start:end+1]), &result); err != nil {
+		t.Fatalf("failed to parse list output %q: %v", stdout, err)
+	}
+	total, _ := result["total"].(float64)
+	return total
 }
 
-func TestParseOffset(t *testing.T) {
+// TestListPaddedAllStatusBehavesAsAll pins that a whitespace-padded "all"
+// status filter (any casing) is treated exactly like "all": the filter is
+// dropped and every status is returned, instead of the literal value
+// " all " reaching the db and matching nothing.
+func TestListPaddedAllStatusBehavesAsAll(t *testing.T) {
+	binPath, binCleanup := buildTaskflowBinary(t)
+	defer binCleanup()
+
+	dbDir := t.TempDir()
+
+	if _, stderr, err := runTaskflow(t, binPath, dbDir, "add",
+		`{"id":"padded-all-1","milestone":"sprint-1","title":"Padded All Status Test","description":"seed task","actor":"tester"}`); err != nil {
+		t.Fatalf("task add failed: %v\nstderr: %s", err, stderr)
+	}
+
 	tests := []struct {
-		input   string
-		wantVal int
-		wantErr bool
+		name      string
+		filter    string
+		wantTotal float64
 	}{
-		{"", 0, false},
-		{"10", 10, false},
-		{"0", 0, false},
-		{"100", 100, false},
-		{"abc", 0, true},
-		{"-1", -1, false},
+		{"explicit status filters", `{"status":"todo"}`, 1},
+		{"non-matching status filters to zero", `{"status":"done"}`, 0},
+		{"all means every status", `{"status":"all"}`, 1},
+		{"padded all behaves as all", `{"status":" all "}`, 1},
+		{"padded uppercase ALL behaves as all", `{"status":" ALL "}`, 1},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			val, err := ParseOffset(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseOffset() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if val != tt.wantVal {
-				t.Errorf("ParseOffset() = %v, want %v", val, tt.wantVal)
+		t.Run(tt.name, func(t *testing.T) {
+			if got := listTotal(t, binPath, dbDir, tt.filter); got != tt.wantTotal {
+				t.Errorf("list %s total = %v, want %v", tt.filter, got, tt.wantTotal)
 			}
 		})
 	}

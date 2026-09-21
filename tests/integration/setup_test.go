@@ -93,7 +93,8 @@ func getTask(t *testing.T, cfg *TestConfig, id string) (*db.Task, error) {
 
 // deleteTestTask deletes a test task by ID
 func deleteTestTask(t *testing.T, cfg *TestConfig, id string) error {
-	return cfg.DB.DeleteTask(id)
+	_, err := cfg.DB.SoftDeleteTask(id)
+	return err
 }
 
 // listAllTasks retrieves all tasks from the database

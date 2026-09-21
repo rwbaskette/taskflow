@@ -7,11 +7,13 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/rwbaskette/taskflow/internal/clierr"
 )
 
 var (
-	ErrInvalidJSON      = errors.New("invalid JSON document")
-	ErrEmptyJSON       = errors.New("JSON document is empty")
+	ErrInvalidJSON = errors.New("invalid JSON document")
+	ErrEmptyJSON   = errors.New("JSON document is empty")
 )
 
 func ParseJSON(r io.Reader) (map[string]interface{}, error) {
@@ -33,29 +35,33 @@ func ParseJSON(r io.Reader) (map[string]interface{}, error) {
 }
 
 func ParseJSONFromArg(arg string) (map[string]interface{}, error) {
-	if arg == "" {
-		return nil, ErrEmptyJSON
-	}
-
 	if arg == "-" {
 		return ParseJSON(os.Stdin)
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(arg), &result); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidJSON, err)
-	}
-
-	return result, nil
+	return ParseJSON(strings.NewReader(arg))
 }
 
-func GetStringField(doc map[string]interface{}, field string) (string, bool) {
+// getField is the shared exists + type-assert core for the typed getters.
+func getField[T any](doc map[string]interface{}, field string) (T, bool) {
+	var zero T
 	val, exists := doc[field]
 	if !exists {
-		return "", false
+		return zero, false
 	}
 
-	strVal, ok := val.(string)
+	typed, ok := val.(T)
+	if !ok {
+		return zero, false
+	}
+
+	return typed, true
+}
+
+// GetStringFieldTrim returns the trimmed value of a string field. It reports
+// false when the field is missing, is not a string, or trims to empty.
+func GetStringFieldTrim(doc map[string]interface{}, field string) (string, bool) {
+	strVal, ok := getField[string](doc, field)
 	if !ok {
 		return "", false
 	}
@@ -64,44 +70,29 @@ func GetStringField(doc map[string]interface{}, field string) (string, bool) {
 	return trimmed, trimmed != ""
 }
 
-func GetStringFieldTrim(doc map[string]interface{}, field string) (string, bool) {
-	val, exists := doc[field]
-	if !exists {
-		return "", false
-	}
-
-	strVal, ok := val.(string)
-	if !ok {
-		return "", false
-	}
-
-	return strVal, true
-}
-
+// GetNumberField returns a numeric field value.
 func GetNumberField(doc map[string]interface{}, field string) (float64, bool) {
-	val, exists := doc[field]
-	if !exists {
-		return 0, false
-	}
-
-	numVal, ok := val.(float64)
-	if !ok {
-		return 0, false
-	}
-
-	return numVal, true
+	return getField[float64](doc, field)
 }
 
-func GetBooleanField(doc map[string]interface{}, field string) (bool, bool) {
-	val, exists := doc[field]
-	if !exists {
-		return false, false
+// GetIDField extracts the required 'id' parameter from a parsed JSON
+// document: a missing field yields MissingIDError, a non-string value yields
+// NonStringIDError, a value that trims to empty yields EmptyIDError, and
+// success yields the trimmed ID.
+func GetIDField(doc map[string]interface{}) (string, error) {
+	if _, exists := doc["id"]; !exists {
+		return "", clierr.MissingIDError()
 	}
 
-	boolVal, ok := val.(bool)
-	if !ok {
-		return false, false
+	idStr, isString := doc["id"].(string)
+	if !isString {
+		return "", clierr.NonStringIDError(doc["id"])
 	}
 
-	return boolVal, true
+	id := strings.TrimSpace(idStr)
+	if id == "" {
+		return "", clierr.EmptyIDError()
+	}
+
+	return id, nil
 }

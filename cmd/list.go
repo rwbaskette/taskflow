@@ -1,105 +1,72 @@
 package cmd
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
-	"strconv"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/db"
 	"github.com/rwbaskette/taskflow/internal/service"
-	cliErrors "github.com/rwbaskette/taskflow/pkg/errors"
-	"github.com/rwbaskette/taskflow/pkg/output"
 )
 
 var listJSON string
 
 var listCmd = &cobra.Command{
-	Use:     "list",
-	Short:   "List all tasks",
-	Long:    "List all tasks with optional filters.\n\nYou can filter by milestone, status, or actor to find specific tasks. Use --all to include completed tasks. Use --format to choose output format (table, markdown, or xml).",
+	Use:   "list",
+	Short: "List all tasks",
+	Long:  "List all tasks with optional filters.\n\nYou can filter by milestone, status, or actor to find specific tasks.",
 	Example: `  task list '{}'
   task list '{"milestone":"sprint-1"}'
   task list '{"status":"todo","actor":"john"}'
-  task list '{"format":"markdown"}'
   task list '{"sort_by":"status"}'
   task list '{"limit":10,"offset":0}'
-  task list '{"all":true}'
   task list '{"id":"task-123"}'`,
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		jsonArg := listJSON
-		if jsonArg == "" && len(args) > 0 {
-			jsonArg = args[0]
-		}
-		if jsonArg == "" {
-			jsonArg = "{}"
-		}
-
-		doc, err := service.ParseJSONFromArg(jsonArg)
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
+		doc := jsonDoc(listJSON, args, "{}")
 
 		listFilterMilestone, _ := service.GetStringFieldTrim(doc, "milestone")
 		listFilterStatus, _ := service.GetStringFieldTrim(doc, "status")
 		listFilterActor, _ := service.GetStringFieldTrim(doc, "actor")
 		listFilterID, _ := service.GetStringFieldTrim(doc, "id")
 		listSortBy, _ := service.GetStringFieldTrim(doc, "sort_by")
-		listFormat, _ := service.GetStringFieldTrim(doc, "format")
 
+		// listFilterStatus is trimmed by GetStringFieldTrim; any case of "all"
+		// means every status. Other values are validated and canonicalized.
 		listStatusFilter := listFilterStatus
-		if strings.ToLower(listFilterStatus) == "all" {
+		if strings.EqualFold(listStatusFilter, "all") {
 			listStatusFilter = ""
+		} else if listStatusFilter != "" {
+			listStatusFilter = normalizeStatus(listFilterStatus)
 		}
-
-		if listFilterStatus != "" && strings.ToLower(listFilterStatus) != "all" {
-			if err := cliErrors.ValidateStatus(listFilterStatus); err != nil {
-				cliErrors.HandleError(err)
-				return
-			}
+		if err := clierr.ValidateMilestone(listFilterMilestone); err != nil {
+			fatal(err)
 		}
-		if err := cliErrors.ValidateMilestone(listFilterMilestone); err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
-		if err := cliErrors.ValidateActor(listFilterActor); err != nil {
-			cliErrors.HandleError(err)
-			return
+		if err := clierr.ValidateActor(listFilterActor); err != nil {
+			fatal(err)
 		}
 
 		if listSortBy != "" {
-			validSortBy := map[string]bool{
-				"status":      true,
-				"priority":    true,
-				"milestone":   true,
-				"created":     true,
-				"updated":     true,
-				"id":          true,
-				"title":       true,
-				"description": true,
-				"actor":       true,
-			}
-			if !validSortBy[listSortBy] {
-				cliErrors.HandleError(cliErrors.ValidationError("sort-by",
+			if !slices.Contains(db.ValidSortKeys, listSortBy) {
+				fatal(clierr.ValidationError("sort-by",
 					fmt.Sprintf("'%s' is not valid", listSortBy),
-					fmt.Sprintf("Valid sort values: status, priority, milestone, created, updated, id, title, description, actor")))
-				return
+					fmt.Sprintf("Valid sort values: %s", strings.Join(db.ValidSortKeys, ", "))))
 			}
 		}
 
 		if listFilterID != "" {
-			if err := cliErrors.ValidateID(listFilterID); err != nil {
-				cliErrors.HandleError(err)
-				return
+			if err := clierr.ValidateID(listFilterID); err != nil {
+				fatal(err)
 			}
 		}
 
 		listLimit := 20
 		listOffset := 0
-		listAll := false
 
 		if v, ok := service.GetNumberField(doc, "limit"); ok {
 			listLimit = int(v)
@@ -107,47 +74,24 @@ var listCmd = &cobra.Command{
 		if v, ok := service.GetNumberField(doc, "offset"); ok {
 			listOffset = int(v)
 		}
-		if v, ok := service.GetBooleanField(doc, "all"); ok {
-			listAll = v
-		}
 
 		if listLimit < 0 {
-			cliErrors.HandleError(fmt.Errorf("limit cannot be negative"))
-			return
+			fatal(errors.New("limit cannot be negative"))
 		}
 		if listOffset < 0 {
-			cliErrors.HandleError(fmt.Errorf("offset cannot be negative"))
-			return
+			fatal(errors.New("offset cannot be negative"))
 		}
 
-		if listFormat != "" {
-			validFormats := map[string]bool{"table": true, "markdown": true, "xml": true}
-			if !validFormats[listFormat] {
-				cliErrors.HandleError(cliErrors.ValidationError("format",
-					fmt.Sprintf("'%s' is not valid", listFormat),
-					"Valid formats: table, markdown, xml"))
-				return
-			}
-		}
-
-		database, err := db.NewDB(db.DefaultDBPath())
-		if err != nil {
-			cliErrors.HandleError(err)
-			return
-		}
+		database := openDB()
 		defer database.Close()
 
-		listService := service.NewListService(database)
-
 		if listFilterID != "" {
-			task, err := listService.GetTask(listFilterID)
+			task, err := database.ReadTask(listFilterID)
 			if err != nil {
-				cliErrors.HandleError(err)
-				return
+				fatal(err)
 			}
-			renderer := output.NewTaskTableRenderer()
-			renderer.Render(&service.ListTaskResult{
-				Tasks:   []service.TaskItem{*task},
+			renderListResult(&service.ListTaskResult{
+				Tasks:   []service.TaskItem{service.TaskToItem(*task)},
 				Total:   1,
 				Limit:   1,
 				Offset:  0,
@@ -156,48 +100,61 @@ var listCmd = &cobra.Command{
 			return
 		}
 
-		filter := &service.ListTaskFilter{
+		dbFilter := db.TaskFilter{
 			Milestone: listFilterMilestone,
 			Status:    listStatusFilter,
 			Actor:     listFilterActor,
-			ID:        listFilterID,
 			SortBy:    listSortBy,
 			Limit:     listLimit,
 			Offset:    listOffset,
-			ShowAll:   listAll,
 		}
 
-		result, err := listService.ListTasks(filter)
+		tasks, err := database.ListTasks(dbFilter)
 		if err != nil {
-			cliErrors.HandleError(err)
-			return
+			fatal(err)
 		}
 
-		renderer := output.NewTaskTableRenderer()
-		renderer.Render(result)
+		items := make([]service.TaskItem, 0, len(tasks))
+		for _, task := range tasks {
+			items = append(items, service.TaskToItem(task))
+		}
+
+		// Get the true total count of all matching records so that pagination
+		// metadata is accurate: reuse dbFilter's filters but clear SortBy,
+		// Limit, and Offset, which do not participate in counting.
+		dbFilter.SortBy, dbFilter.Limit, dbFilter.Offset = "", 0, 0
+		total, err := database.CountTasks(dbFilter)
+		if err != nil {
+			fatal(err)
+		}
+
+		// Determine whether there are more results beyond the current page.
+		// There are more if the current page doesn't reach the end of the
+		// full set.
+		hasMore := listOffset+len(items) < total
+
+		renderListResult(&service.ListTaskResult{
+			Tasks:   items,
+			Total:   total,
+			Limit:   listLimit,
+			Offset:  listOffset,
+			HasMore: hasMore,
+		})
 	},
+}
+
+// renderListResult prints the list result as two-space indented JSON.
+func renderListResult(result *service.ListTaskResult) {
+	jsonData, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		fatal(err)
+	}
+
+	fmt.Println(string(jsonData))
 }
 
 func init() {
 	rootCmd.AddCommand(listCmd)
 
 	listCmd.Flags().StringVarP(&listJSON, "json", "j", "", "JSON document (use '-' for stdin)")
-}
-
-// ParseLimit parses a limit string, returns default 20 if empty.
-// Deprecated: Only used in tests.
-func ParseLimit(s string) (int, error) {
-	if s == "" {
-		return 20, nil
-	}
-	return strconv.Atoi(s)
-}
-
-// ParseOffset parses an offset string, returns default 0 if empty.
-// Deprecated: Only used in tests.
-func ParseOffset(s string) (int, error) {
-	if s == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(s)
 }

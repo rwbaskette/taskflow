@@ -11,7 +11,7 @@ TaskFlow is a CLI task management system designed for teams and individuals who 
 - **Complete tasks** - Mark tasks as done
 - **Block tasks** - Block tasks with a reason for tracking dependencies
 - **Delete tasks** - Soft delete tasks (moved to deleted_tasks table)
-- **List tasks** - View all tasks with filtering, pagination, sorting, and multiple output formats
+- **List tasks** - View all tasks with filtering, pagination, and sorting
 - **Reset timed-out tasks** - Automatically reset tasks that have been in progress too long
 - **Start tasks** - Move a task to in_progress status
 
@@ -63,13 +63,15 @@ For OpenCode to use the tool wrapper, ensure:
 - The `~/.config/opencode/tools/` directory exists
 - The `taskflow` binary is in your PATH
 
+After you upgrade taskflow, run `taskflow tool-wrapper` again to regenerate the installed wrapper; the old wrapper keeps the old spawn cwd. The wrapper's version check runs once per opencode process; restart opencode after you replace the taskflow binary.
+
 ### Database Setup
 
 The application automatically creates the SQLite database at `.taskflow/tasks.db` on first run. The database schema includes:
 
-- `tasks` table with columns: id, milestone, sprint, title, description, status, priority, actor, blocked_by, created, last_updated
+- `tasks` table with columns: id, milestone, sprint, title, description, status, actor, blocked_by, created, last_updated
 - `deleted_tasks` table with an additional `deleted_on` column for soft-deleted tasks
-- Indexes on: milestone, status, sprint, priority, deleted_on
+- Indexes on: milestone, status, sprint, deleted_on
 
 ## Usage
 
@@ -225,10 +227,10 @@ taskflow delete -j '{"id":"1"}'
 
 ### Command: list
 
-List all tasks with optional filtering and formatting.
+List all tasks with optional filtering.
 
 ```bash
-# List all tasks (default table format)
+# List all tasks
 taskflow list
 
 # Filter by milestone
@@ -237,18 +239,12 @@ taskflow list '{"milestone":"sprint-1"}'
 # Filter by status and actor
 taskflow list '{"status":"todo","actor":"john"}'
 
-# Output as markdown or xml
-taskflow list '{"format":"markdown"}'
-taskflow list '{"format":"xml"}'
-
 # Sort by field
 taskflow list '{"sort_by":"status"}'
-taskflow list '{"sort_by":"priority"}'
 taskflow list '{"sort_by":"milestone"}'
 taskflow list '{"sort_by":"created"}'
 taskflow list '{"sort_by":"updated"}'
 taskflow list '{"sort_by":"id"}'
-taskflow list '{"sort_by":"sprint"}'
 taskflow list '{"sort_by":"title"}'
 taskflow list '{"sort_by":"description"}'
 taskflow list '{"sort_by":"actor"}'
@@ -256,14 +252,11 @@ taskflow list '{"sort_by":"actor"}'
 # Pagination
 taskflow list '{"limit":10,"offset":0}'
 
-# Include completed tasks
-taskflow list '{"all":true}'
-
 # Get specific task by ID
 taskflow list '{"id":"task-123"}'
 
 # Combined example
-taskflow list '{"milestone":"v1.0","status":"in_progress","format":"table","limit":50}'
+taskflow list '{"milestone":"v1.0","status":"in_progress","limit":50}'
 ```
 
 #### JSON Fields
@@ -271,15 +264,12 @@ taskflow list '{"milestone":"v1.0","status":"in_progress","format":"table","limi
 | Field | Default | Description |
 |-------|---------|-------------|
 | `milestone` | - | Filter by milestone |
-| `sprint` | - | Filter by sprint |
 | `status` | - | Filter by status (todo, in_progress, done, blocked) |
 | `actor` | - | Filter by actor |
 | `id` | - | Get specific task by ID |
-| `sort_by` | - | Sort by field (status, priority, milestone, created, updated, id, sprint, title, description, actor) |
-| `format` | `table` | Output format (table, markdown, xml) |
+| `sort_by` | - | Sort by field (status, milestone, created, updated, id, title, description, actor) |
 | `limit` | `20` | Maximum tasks to display |
 | `offset` | `0` | Number of tasks to skip |
-| `all` | `false` | Show all tasks including completed |
 
 ---
 
@@ -308,7 +298,7 @@ taskflow reset-timedout -j '{"minutes":30}'
 
 ### OpenCode Tool Wrapper Commands
 
-The `tool-wrapper` command generates a TypeScript wrapper for OpenCode integration. The wrapper exposes these additional commands that map to taskflow CLI calls:
+The `tool-wrapper` command generates a TypeScript wrapper for OpenCode integration. The wrapper runs taskflow in the opencode session directory (`context.directory`). taskflow finds the database by walking up from that directory for the `.taskflow` anchor. The wrapper embeds the taskflow version it was generated with. It refuses to run when the installed taskflow has a different major version, or a different minor version while the major is 0, when the binary is missing, or when the version output is not parseable. The error tells the agent to rebuild taskflow and regenerate the wrapper. The wrapper exposes these additional commands that map to taskflow CLI calls:
 
 | Wrapper Command | Maps To | Description |
 |-----------------|---------|-------------|
@@ -347,14 +337,11 @@ taskflow/
 │   ├── list.go            # List tasks command
 │   ├── reset.go           # Reset timed-out tasks command
 │   ├── tool-wrapper.go    # Generate OpenCode tool wrapper
-│   ├── testutil.go        # Test utilities
 │   └── *_test.go          # Unit tests for commands
 ├── internal/
 │   ├── db/
 │   │   ├── db.go          # Database connection and initialization
 │   │   ├── operations.go  # CRUD operations
-│   │   ├── query_builder.go  # Query building utilities
-│   │   ├── filters.go     # Filtering logic
 │   │   ├── errors.go      # Database error types
 │   │   └── schema.sql     # Database schema definition
 │   ├── service/
@@ -369,24 +356,7 @@ taskflow/
 │   │   ├── json.go        # JSON parsing utilities
 │   │   ├── errors.go      # Service error types
 │   │   └── *_test.go      # Service unit tests
-│   ├── validation/
-│   │   ├── validator.go   # Input validation
-│   │   ├── status.go      # Status validation constants and helpers
-│   │   └── *_test.go      # Validation tests
 │   └── README.md          # Internal package documentation
-├── pkg/
-│   ├── output/
-│   │   ├── formatter.go   # Output formatting (table, markdown, xml)
-│   │   ├── table.go       # Table renderer
-│   │   └── *_test.go      # Formatter tests
-│   ├── errors/
-│   │   ├── errors.go      # Error handling utilities and CLI error types
-│   │   └── *_test.go      # Error tests
-│   ├── generator/
-│   │   ├── opencode.go    # OpenCode shell wrapper generator
-│   │   ├── tool.go        # TypeScript tool wrapper generator
-│   │   └── tool_test.go   # Generator tests
-│   └── README.md          # Package documentation
 ├── scripts/
 │   ├── test-add.sh        # Test adding tasks
 │   ├── test-update.sh     # Test updating tasks
@@ -412,10 +382,8 @@ taskflow/
 - **cmd/**: Cobra command implementations - parse flags, validate inputs, call services
 - **internal/db/**: Database layer - connection management, queries, schema
 - **internal/service/**: Business logic - task operations, validation, state transitions
-- **internal/validation/**: Input validation - ID format, status values, field constraints
-- **pkg/output/**: Output formatting - table, markdown, and xml renderers
-- **pkg/errors/**: Error handling - custom error types and formatting
-- **pkg/generator/**: Code generation - TypeScript tool wrappers and OpenCode shell wrappers
+- **internal/clierr/**: Error handling and input validation - CLI error types, ID/status/field validation
+- **internal/generator/**: Code generation - TypeScript tool wrapper for OpenCode
 
 ### Database Schema
 
@@ -427,7 +395,6 @@ CREATE TABLE tasks (
     title TEXT NOT NULL,
     description TEXT,
     status TEXT NOT NULL DEFAULT 'todo',
-    priority INTEGER DEFAULT 0,
     actor TEXT,
     blocked_by TEXT,
     created TEXT NOT NULL,
@@ -437,7 +404,6 @@ CREATE TABLE tasks (
 CREATE INDEX idx_tasks_milestone ON tasks(milestone);
 CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_tasks_sprint ON tasks(sprint);
-CREATE INDEX idx_tasks_priority ON tasks(priority);
 
 CREATE TABLE deleted_tasks (
     id TEXT PRIMARY KEY,
@@ -446,7 +412,6 @@ CREATE TABLE deleted_tasks (
     title TEXT NOT NULL,
     description TEXT,
     status TEXT NOT NULL,
-    priority INTEGER DEFAULT 0,
     actor TEXT,
     blocked_by TEXT,
     created TEXT NOT NULL,
@@ -560,9 +525,7 @@ taskflow --config /path/to/config.yaml <command>
 
 ## Version Information
 
-```
-Task CLI version: 0.1.0
-```
+Run `taskflow version` for the current version.
 
 ---
 
@@ -584,14 +547,13 @@ taskflow block '{"id":"TASK-3","reason":"Waiting for API to be ready"}'
 
 # 4. Check progress
 taskflow list '{"milestone":"sprint-1"}'
-taskflow list '{"milestone":"sprint-1","format":"markdown"}'
 
 # 5. Complete tasks
 taskflow complete '{"id":"TASK-1"}'
 taskflow complete '{"id":"TASK-2"}'
 
 # 6. View completed tasks
-taskflow list '{"all":true,"milestone":"sprint-1"}'
+taskflow list '{"status":"done","milestone":"sprint-1"}'
 
 # 7. Check for timed-out tasks
 taskflow reset-timedout '{"minutes":30}'
@@ -613,11 +575,11 @@ go test ./cmd/...
 # Unit tests for internal packages
 go test ./internal/...
 
-# Unit tests for pkg packages
-go test ./pkg/...
-
 # Integration tests
 go test ./tests/integration/...
+
+# Standalone CLI e2e (no Go test deps; builds the binary and runs a full lifecycle)
+bash scripts/e2e.sh
 ```
 
 ### Adding New Commands

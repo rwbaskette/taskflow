@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -111,7 +112,7 @@ func TestUpdateCmdExecute(t *testing.T) {
 func TestUpdateCmdHelp(t *testing.T) {
 	cmd := setupUpdateCommand()
 
-	buf := NewOutputBuffer()
+	buf := new(bytes.Buffer)
 	cmd.SetOutput(buf)
 
 	err := cmd.Help()

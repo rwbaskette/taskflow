@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -112,7 +113,7 @@ func TestCompleteCmdExecute(t *testing.T) {
 func TestCompleteCmdHelp(t *testing.T) {
 	cmd := setupCompleteCommand()
 
-	buf := NewOutputBuffer()
+	buf := new(bytes.Buffer)
 	cmd.SetOutput(buf)
 
 	err := cmd.Help()

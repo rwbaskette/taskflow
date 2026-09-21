@@ -4,11 +4,40 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/rwbaskette/taskflow/pkg/generator"
+	"github.com/rwbaskette/taskflow/internal/generator"
+	"github.com/rwbaskette/taskflow/internal/version"
 )
+
+// cleanAndValidatePath sanitizes a file path and ensures it doesn't escape
+// the allowed directory. (Moved here from pkg/generator: the tool-wrapper
+// command is its only caller.)
+func cleanAndValidatePath(outputPath string, allowedDir string) (string, error) {
+	// Convert allowed dir to absolute
+	absAllowed, err := filepath.Abs(allowedDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve allowed directory: %w", err)
+	}
+
+	// For relative output paths, join with the allowed dir first; absolute
+	// paths are validated as-is. (filepath.Abs never fails on an absolute
+	// path, so the old separate abs-branch add-on call was a no-op.)
+	joined := outputPath
+	if !filepath.IsAbs(outputPath) {
+		joined = filepath.Join(absAllowed, outputPath)
+	}
+	cleaned := filepath.Clean(joined)
+
+	// Verify the cleaned path is still within allowed dir
+	if !strings.HasPrefix(cleaned, absAllowed+string(filepath.Separator)) && cleaned != absAllowed {
+		return "", fmt.Errorf("path traversal detected: %s is not within %s", outputPath, allowedDir)
+	}
+
+	return cleaned, nil
+}
 
 var (
 	outputFile string
@@ -31,10 +60,11 @@ for use in the OpenCode environment using the tool() helper format.`,
   # Generate TypeScript tool wrapper and save to OpenCode tools directory
   taskflow tool-wrapper --output .opencode/tools/taskflow.ts`,
 	Args: cobra.NoArgs,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		// Build options
 		toolOpts := &generator.ToolWrapperOptions{
 			BinaryPath: binaryPath,
+			Version:    version.Version,
 		}
 
 		// Validate output file path if specified
@@ -42,22 +72,18 @@ for use in the OpenCode environment using the tool() helper format.`,
 			// Get the current working directory as allowed base
 			cwd, err := os.Getwd()
 			if err != nil {
-				fmt.Printf("Error: could not determine working directory: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("could not determine working directory: %w", err)
 			}
 			// Clean and validate the path
-			cleanPath, err := generator.CleanAndValidatePath(outputFile, cwd)
+			cleanPath, err := cleanAndValidatePath(outputFile, cwd)
 			if err != nil {
-				fmt.Printf("Error: %v\n", err)
-				os.Exit(1)
+				return err
 			}
-			// Ensure the directory exists
-			dir := filepath.Dir(cleanPath)
-			if dir != "." && dir != "" {
-				if err := os.MkdirAll(dir, 0755); err != nil {
-					fmt.Printf("Error creating directory: %v\n", err)
-					os.Exit(1)
-				}
+			// Ensure the directory exists. cleanPath is always absolute, so
+			// filepath.Dir never returns "." or ""; and MkdirAll on an
+			// existing directory is a no-op, so no guard is needed.
+			if err := os.MkdirAll(filepath.Dir(cleanPath), 0755); err != nil {
+				return fmt.Errorf("creating directory: %w", err)
 			}
 			outputFile = cleanPath
 		}
@@ -65,21 +91,19 @@ for use in the OpenCode environment using the tool() helper format.`,
 		// Generate code
 		code, err := generator.GenerateToolWrapper(toolOpts)
 		if err != nil {
-			fmt.Printf("Error generating code: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("generating code: %w", err)
 		}
 
 		// Output to file or stdout
 		if outputFile != "" {
-			err := os.WriteFile(outputFile, []byte(code), 0644)
-			if err != nil {
-				fmt.Printf("Error writing to file: %v\n", err)
-				os.Exit(1)
+			if err := os.WriteFile(outputFile, []byte(code), 0644); err != nil {
+				return fmt.Errorf("writing to file: %w", err)
 			}
-			fmt.Printf("Generated tool wrapper to: %s\n", outputFile)
-		} else {
-			fmt.Print(code)
+			fmt.Fprintf(cmd.OutOrStdout(), "Generated tool wrapper to: %s\n", outputFile)
+			return nil
 		}
+		_, err = fmt.Fprint(cmd.OutOrStdout(), code)
+		return err
 	},
 }
 
