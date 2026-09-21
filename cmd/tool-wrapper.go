@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rwbaskette/taskflow/internal/generator"
+	"github.com/rwbaskette/taskflow/internal/version"
 )
 
 // cleanAndValidatePath sanitizes a file path and ensures it doesn't escape
@@ -63,7 +64,7 @@ for use in the OpenCode environment using the tool() helper format.`,
 		// Build options
 		toolOpts := &generator.ToolWrapperOptions{
 			BinaryPath: binaryPath,
-			Version:    version,
+			Version:    version.Version,
 		}
 
 		// Validate output file path if specified

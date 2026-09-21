@@ -2,17 +2,24 @@ package cmd
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/rwbaskette/taskflow/internal/anchor"
+	"github.com/rwbaskette/taskflow/internal/version"
 	"github.com/spf13/cobra"
 )
 
 func TestRootCmdVersion(t *testing.T) {
-	// Test that version is set correctly
-	if rootCmd.Version != "0.1.0" {
-		t.Errorf("Version = %v, want %v", rootCmd.Version, "0.1.0")
+	// The version must match the embedded VERSION value and be semver: a
+	// guard on format and wiring, not a pin on the literal.
+	if rootCmd.Version != version.Version {
+		t.Errorf("Version = %v, want %v", rootCmd.Version, version.Version)
+	}
+	re := regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	if !re.MatchString(rootCmd.Version) {
+		t.Errorf("Version = %q, want a semver string matching %q", rootCmd.Version, re.String())
 	}
 }
 

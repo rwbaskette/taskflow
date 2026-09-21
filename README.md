@@ -525,9 +525,7 @@ taskflow --config /path/to/config.yaml <command>
 
 ## Version Information
 
-```
-Task CLI version: 0.1.0
-```
+Run `taskflow version` for the current version.
 
 ---
 

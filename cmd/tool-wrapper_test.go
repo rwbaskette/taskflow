@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/rwbaskette/taskflow/internal/version"
 )
 
 // TestToolWrapperEmbedsVersion pins the wiring from the cmd package version
@@ -20,7 +22,7 @@ func TestToolWrapperEmbedsVersion(t *testing.T) {
 	}
 
 	code := buf.String()
-	want := `const TASKFLOW_WRAPPER_VERSION = "` + version + `";`
+	want := `const TASKFLOW_WRAPPER_VERSION = "` + version.Version + `";`
 	if !strings.Contains(code, want) {
 		t.Errorf("tool-wrapper output missing %q; first 200 chars:\n%s", want, code[:min(len(code), 200)])
 	}

@@ -12,10 +12,9 @@ import (
 	"github.com/rwbaskette/taskflow/internal/clierr"
 	"github.com/rwbaskette/taskflow/internal/db"
 	"github.com/rwbaskette/taskflow/internal/service"
+	"github.com/rwbaskette/taskflow/internal/version"
 	"github.com/spf13/cobra"
 )
-
-var version = "0.1.0"
 
 var rootCmd = &cobra.Command{
 	Use:   "taskflow",
@@ -29,7 +28,7 @@ Environment Variables:
   TASKFLOW_DIR  Custom directory for the database (default: .taskflow)
                   When set, the database will be created at $TASKFLOW_DIR/tasks.db
                   Example: TASKFLOW_DIR=/tmp/work/taskflow taskflow list`,
-	Version: version,
+	Version: version.Version,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 0 {
 			_ = cmd.Help()
