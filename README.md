@@ -44,26 +44,40 @@ Installation is assumed to use standard go conventions:
 go install .
 ```
 
-### OpenCode Tool Wrapper Setup
+### OpenCode 2.0 Plugin Setup
 
-TaskFlow can be integrated with [OpenCode](https://opencode.ai) as a tool wrapper. Generate the TypeScript wrapper and install it:
+TaskFlow ships a generator for a complete [OpenCode](https://opencode.ai) 2.0 plugin. The plugin default-exports `Plugin.define` and registers the `taskflow_*` tools through `ctx.tool.transform`; each tool shells out to the taskflow CLI:
 
 ```bash
-# Generate and install the tool wrapper to OpenCode's tools directory
-taskflow tool-wrapper > ~/.config/opencode/tools/taskflow.ts
-
-# Or with a custom output path
-taskflow tool-wrapper --output ~/.config/opencode/tools/taskflow.ts
+# Project-local plugin (auto-discovered by OpenCode 2.0)
+taskflow tool-wrapper --output .opencode/plugins/taskflow.ts
 
 # With a custom binary path
-taskflow tool-wrapper --binary-path my-task --output ~/.config/opencode/tools/taskflow.ts
+taskflow tool-wrapper --binary-path my-task --output .opencode/plugins/taskflow.ts
+
+# Print to stdout instead
+taskflow tool-wrapper
 ```
 
-For OpenCode to use the tool wrapper, ensure:
-- The `~/.config/opencode/tools/` directory exists
-- The `taskflow` binary is in your PATH
+For a global install, save the generated file anywhere and add its path to the `"plugins"` array in `opencode.jsonc`. A per-project binary override is available through plugin options:
 
-After you upgrade taskflow, run `taskflow tool-wrapper` again to regenerate the installed wrapper; the old wrapper keeps the old spawn cwd. The wrapper's version check runs once per opencode process; restart opencode after you replace the taskflow binary.
+```json
+"plugins": [{ "package": ".opencode/plugins/taskflow.ts", "options": { "binaryPath": "my-task" } }]
+```
+
+The `binaryPath` value must be an absolute path or a real executable on `PATH`; npm-style `.cmd`/`.bat` shims are not supported (the plugin spawns the binary directly).
+
+Requirements and behavior:
+
+- Requires OpenCode 2.0 and Node 18+.
+- The plugin registers 12 tools namespaced `taskflow_*` (see the tool table under [Usage](#usage)).
+- Each tool spawns taskflow in the session's working directory (worktree-aware), so taskflow finds the database by walking up from that directory for the `.taskflow` anchor.
+- Tool calls are canceled when the session stops.
+- After upgrading taskflow, rerun `taskflow tool-wrapper` to regenerate the plugin. The plugin refuses a taskflow with a different major version (or a different minor version while the major is 0), a missing binary, or unparseable version output, and the error says to regenerate the plugin.
+
+### Upgrading from the 0.19-era tool wrapper
+
+OpenCode 2.0 does not read the old tool wrapper file (for example `~/.config/opencode/tools/taskflow.ts`); the file can be deleted. The plugin registers the same operations under namespaced tool names (`taskflow_*`) and requires OpenCode 2.0.
 
 ### Database Setup
 
@@ -296,18 +310,24 @@ taskflow reset-timedout -j '{"minutes":30}'
 
 ---
 
-### OpenCode Tool Wrapper Commands
+### OpenCode 2.0 Plugin Tools
 
-The `tool-wrapper` command generates a TypeScript wrapper for OpenCode integration. The wrapper runs taskflow in the opencode session directory (`context.directory`). taskflow finds the database by walking up from that directory for the `.taskflow` anchor. The wrapper embeds the taskflow version it was generated with. It refuses to run when the installed taskflow has a different major version, or a different minor version while the major is 0, when the binary is missing, or when the version output is not parseable. The error tells the agent to rebuild taskflow and regenerate the wrapper. The wrapper exposes these additional commands that map to taskflow CLI calls:
+The `tool-wrapper` command generates a complete OpenCode 2.0 plugin (a `Plugin.define` module that registers the tools below through `ctx.tool.transform`). The plugin spawns taskflow in the session's working directory; taskflow finds the database by walking up from that directory for the `.taskflow` anchor. The plugin embeds the taskflow version it was generated with. It refuses to run when the installed taskflow has a different major version, or a different minor version while the major is 0, when the binary is missing, or when the version output is not parseable. The error tells the agent to regenerate the plugin. The plugin exposes these tools that map to taskflow CLI calls:
 
-| Wrapper Command | Maps To | Description |
-|-----------------|---------|-------------|
-| `start` | `taskflow update '{"id":"...","status":"in_progress"}'` | Start working on a task |
-| `list_all` | `taskflow list` with filters | List all tasks |
-| `list_blocked` | `taskflow list '{"status":"blocked"}'` | List blocked tasks |
-| `list_done` | `taskflow list '{"status":"done"}'` | List completed tasks |
-| `list_status_in_progress` | `taskflow list '{"status":"in_progress"}'` | List in-progress tasks |
-| `list_status_todo` | `taskflow list '{"status":"todo"}'` | List todo tasks |
+| Plugin Tool | Maps To | Description |
+|-------------|---------|-------------|
+| `taskflow_add` | `taskflow add '{"id":"...","title":"...","description":"...","milestone":"..."}'` | Add a new task |
+| `taskflow_block` | `taskflow block '{"id":"...","reason":"..."}'` | Block a task with a reason |
+| `taskflow_complete` | `taskflow complete '{"id":"..."}'` | Mark a task as done |
+| `taskflow_delete` | `taskflow delete '{"id":"..."}'` | Soft delete a task |
+| `taskflow_list_all` | `taskflow list` with filters | List all tasks |
+| `taskflow_list_blocked` | `taskflow list '{"status":"blocked"}'` | List blocked tasks |
+| `taskflow_list_done` | `taskflow list '{"status":"done"}'` | List completed tasks |
+| `taskflow_list_status_in_progress` | `taskflow list '{"status":"in_progress"}'` | List in-progress tasks |
+| `taskflow_list_status_todo` | `taskflow list '{"status":"todo"}'` | List todo tasks |
+| `taskflow_reset_timedout` | `taskflow reset-timedout '{"minutes":30}'` | Reset timed-out tasks to todo |
+| `taskflow_start` | `taskflow update '{"id":"...","status":"in_progress"}'` | Start working on a task |
+| `taskflow_unblock` | `taskflow unblock '{"id":"..."}'` | Unblock a blocked task |
 
 ### Starting a Task
 
@@ -336,7 +356,7 @@ taskflow/
 │   ├── delete.go          # Delete task command
 │   ├── list.go            # List tasks command
 │   ├── reset.go           # Reset timed-out tasks command
-│   ├── tool-wrapper.go    # Generate OpenCode tool wrapper
+│   ├── tool-wrapper.go    # Generate OpenCode 2.0 plugin
 │   └── *_test.go          # Unit tests for commands
 ├── internal/
 │   ├── db/
@@ -383,7 +403,7 @@ taskflow/
 - **internal/db/**: Database layer - connection management, queries, schema
 - **internal/service/**: Business logic - task operations, validation, state transitions
 - **internal/clierr/**: Error handling and input validation - CLI error types, ID/status/field validation
-- **internal/generator/**: Code generation - TypeScript tool wrapper for OpenCode
+- **internal/generator/**: Code generation - OpenCode 2.0 plugin for taskflow tools
 
 ### Database Schema
 
