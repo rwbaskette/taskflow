@@ -5,6 +5,17 @@ import (
 	"testing"
 )
 
+// generateToolWrapper is a helper that fails the test on a generation error
+// and returns the generated plugin source.
+func generateToolWrapper(t *testing.T, opts *ToolWrapperOptions) string {
+	t.Helper()
+	result, err := GenerateToolWrapper(opts)
+	if err != nil {
+		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+	}
+	return result
+}
+
 func TestGenerateToolWrapper(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -17,7 +28,7 @@ func TestGenerateToolWrapper(t *testing.T) {
 			opts: &ToolWrapperOptions{
 				BinaryPath: "taskflow",
 			},
-			wantContains: "export const task_add = tool({",
+			wantContains: "export default Plugin.define({",
 			wantErr:      false,
 		},
 		{
@@ -25,13 +36,13 @@ func TestGenerateToolWrapper(t *testing.T) {
 			opts: &ToolWrapperOptions{
 				BinaryPath: "myapp",
 			},
-			wantContains: "execFileSync(`myapp`",
+			wantContains: `const DEFAULT_BINARY = "myapp";`,
 			wantErr:      false,
 		},
 		{
 			name:         "nil options uses defaults",
 			opts:         nil,
-			wantContains: "execFileSync(`taskflow`",
+			wantContains: `const DEFAULT_BINARY = "taskflow";`,
 			wantErr:      false,
 		},
 		{
@@ -39,7 +50,7 @@ func TestGenerateToolWrapper(t *testing.T) {
 			opts: &ToolWrapperOptions{
 				BinaryPath: "",
 			},
-			wantContains: "execFileSync(`taskflow`",
+			wantContains: `const DEFAULT_BINARY = "taskflow";`,
 			wantErr:      false,
 		},
 	}
@@ -58,84 +69,146 @@ func TestGenerateToolWrapper(t *testing.T) {
 	}
 }
 
-func TestGenerateToolWrapperSpawnCwdDirectory(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+func TestGenerateToolWrapperPluginEntrypoints(t *testing.T) {
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
+
+	// The output must be an OpenCode 2.0 plugin: a default-exported
+	// Plugin.define whose setup registers tools through ctx.tool.transform.
+	wantContains := []string{
+		`import { Plugin } from "@opencode/plugin";`,
+		`import { execFile } from "node:child_process";`,
+		`export default Plugin.define({`,
+		`id: "taskflow"`,
+		`await ctx.tool.transform((editor) =>`,
+		`editor.namespace({ name: NAMESPACE`,
+		`const NAMESPACE = "taskflow";`,
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(result, want) {
+			t.Errorf("GenerateToolWrapper() output missing: %s", want)
+		}
 	}
 
+	// The V1 wrapper format must not come back in any form.
+	mustNotContain := []string{
+		"@opencode-ai/plugin",
+		"tool({",
+		"tool.schema.",
+		"execFileSync",
+	}
+	for _, bad := range mustNotContain {
+		if strings.Contains(result, bad) {
+			t.Errorf("GenerateToolWrapper() output must not contain: %s", bad)
+		}
+	}
+}
+
+func TestGenerateToolWrapperToolBlockCounts(t *testing.T) {
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
 	wantTools := len(getToolCommands())
 
-	// The wrapper is worktree-unaware: no path import, no worktree reads,
-	// no dirname guard. taskflow resolves the anchor by walking up from its
-	// process cwd.
-	if strings.Contains(result, "import path") {
-		t.Error(`GenerateToolWrapper() output must not contain: import path`)
+	// Every registered tool emits exactly one of each structural element.
+	patterns := []string{
+		"editor.add({",
+		`options: { namespace: NAMESPACE }`,
+		"async execute(args, context)",
+		"await checkVersion(binary);",
+		"signal: context.signal",
+		"cwd: await directoryFor(context.sessionID)",
+		"input: {",
+		"additionalProperties: false",
+		`"type": "object"`,
+		"JSON.stringify(payload)",
+		"{ content: result }",
+		"return { content: result };",
 	}
-	if strings.Contains(result, "context.worktree") {
-		t.Error("GenerateToolWrapper() output must not contain: context.worktree")
+	for _, pattern := range patterns {
+		if count := strings.Count(result, pattern); count != wantTools {
+			t.Errorf("GenerateToolWrapper() %q count = %d, want %d", pattern, count, wantTools)
+		}
 	}
-	if strings.Contains(result, "path.dirname") {
-		t.Error("GenerateToolWrapper() output must not contain: path.dirname")
+}
+
+func TestGenerateToolWrapperRequiredArrays(t *testing.T) {
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
+
+	// Exactly six tools carry a required array: add, block, complete,
+	// delete, start, and unblock. The five list tools and reset_timedout
+	// have none.
+	if count := strings.Count(result, "required: ["); count != 6 {
+		t.Errorf("GenerateToolWrapper() required array count = %d, want 6", count)
+	}
+	wantArrays := []string{
+		`required: ["id", "title", "description", "milestone"],`, // add
+		`required: ["id", "reason"],`,                            // block
+	}
+	for _, want := range wantArrays {
+		if !strings.Contains(result, want) {
+			t.Errorf("GenerateToolWrapper() output missing: %s", want)
+		}
+	}
+	// complete, delete, start, and unblock each require only id.
+	if count := strings.Count(result, `required: ["id"],`); count != 4 {
+		t.Errorf(`GenerateToolWrapper() required: ["id"] count = %d, want 4`, count)
+	}
+}
+
+func TestGenerateToolWrapperJSONSchemaTyping(t *testing.T) {
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
+
+	// Property objects are plain JSON Schema, not zod.
+	if !strings.Contains(result, `{ type: "string"`) {
+		t.Error(`GenerateToolWrapper() output missing: { type: "string"`)
+	}
+	if !strings.Contains(result, `{ type: "number"`) {
+		t.Error(`GenerateToolWrapper() output missing: { type: "number"`)
 	}
 
-	// Each tool must spawn with the opencode session directory as cwd.
-	if count := strings.Count(result, "cwd: context.directory"); count != wantTools {
-		t.Errorf("GenerateToolWrapper() cwd: context.directory count = %d, want %d", count, wantTools)
+	// sort_by carries the db.ValidSortKeys enum on each of the five list
+	// tools.
+	wantEnum := `enum: ["status", "milestone", "created", "updated", "id", "title", "description", "actor"]`
+	if count := strings.Count(result, wantEnum); count != 5 {
+		t.Errorf("GenerateToolWrapper() sort_by enum count = %d, want 5", count)
 	}
 
-	// The options object must contain exactly one cwd option per tool.
-	if count := strings.Count(result, "cwd:"); count != wantTools {
-		t.Errorf("GenerateToolWrapper() cwd option count = %d, want %d", count, wantTools)
+	// limit and offset use minimum 0 (2 args x 5 list tools); reset_timedout's
+	// minutes uses minimum 1.
+	if count := strings.Count(result, "minimum: 0"); count != 10 {
+		t.Errorf("GenerateToolWrapper() minimum: 0 count = %d, want 10", count)
 	}
-
-	// Every tool's execute must call checkVersion before building cmdArgs.
-	if count := strings.Count(result, `checkVersion("taskflow");`); count != wantTools {
-		t.Errorf("GenerateToolWrapper() checkVersion call count = %d, want %d", count, wantTools)
+	if count := strings.Count(result, "minimum: 1"); count != 1 {
+		t.Errorf("GenerateToolWrapper() minimum: 1 count = %d, want 1", count)
 	}
 }
 
 func TestGenerateToolWrapperVersionEmbed(t *testing.T) {
 	t.Run("embedded version", func(t *testing.T) {
-		result, err := GenerateToolWrapper(&ToolWrapperOptions{BinaryPath: "taskflow", Version: "0.1.0"})
-		if err != nil {
-			t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-		}
-		if !strings.Contains(result, `const TASKFLOW_WRAPPER_VERSION = "0.1.0";`) {
-			t.Error(`GenerateToolWrapper() output missing: const TASKFLOW_WRAPPER_VERSION = "0.1.0";`)
+		result := generateToolWrapper(t, &ToolWrapperOptions{BinaryPath: "taskflow", Version: "0.1.0"})
+		if !strings.Contains(result, `const TASKFLOW_PLUGIN_VERSION = "0.1.0";`) {
+			t.Error(`GenerateToolWrapper() output missing: const TASKFLOW_PLUGIN_VERSION = "0.1.0";`)
 		}
 	})
 
 	t.Run("nil options default to 0.0.0", func(t *testing.T) {
-		result, err := GenerateToolWrapper(nil)
-		if err != nil {
-			t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-		}
-		if !strings.Contains(result, `const TASKFLOW_WRAPPER_VERSION = "0.0.0";`) {
-			t.Error(`GenerateToolWrapper() output missing: const TASKFLOW_WRAPPER_VERSION = "0.0.0";`)
+		result := generateToolWrapper(t, nil)
+		if !strings.Contains(result, `const TASKFLOW_PLUGIN_VERSION = "0.0.0";`) {
+			t.Error(`GenerateToolWrapper() output missing: const TASKFLOW_PLUGIN_VERSION = "0.0.0";`)
 		}
 	})
 
 	t.Run("empty version defaults to 0.0.0", func(t *testing.T) {
-		result, err := GenerateToolWrapper(&ToolWrapperOptions{BinaryPath: "taskflow"})
-		if err != nil {
-			t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-		}
-		if !strings.Contains(result, `const TASKFLOW_WRAPPER_VERSION = "0.0.0";`) {
-			t.Error(`GenerateToolWrapper() output missing: const TASKFLOW_WRAPPER_VERSION = "0.0.0";`)
+		result := generateToolWrapper(t, &ToolWrapperOptions{BinaryPath: "taskflow"})
+		if !strings.Contains(result, `const TASKFLOW_PLUGIN_VERSION = "0.0.0";`) {
+			t.Error(`GenerateToolWrapper() output missing: const TASKFLOW_PLUGIN_VERSION = "0.0.0";`)
 		}
 	})
 
 	t.Run("helper block", func(t *testing.T) {
-		result, err := GenerateToolWrapper(DefaultToolWrapperOptions())
-		if err != nil {
-			t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-		}
+		result := generateToolWrapper(t, DefaultToolWrapperOptions())
 		for _, want := range []string{
 			"function parseSemver(",
 			"function compatible(",
-			"function checkVersion(",
+			"async function checkVersion(",
 			// Semver rule lines, pinned verbatim: 0.0.0 disables the rule;
 			// majors must match; a 0-major also pins the minor.
 			"if (runtimeVersion !== null) return;",
@@ -150,61 +223,173 @@ func TestGenerateToolWrapperVersionEmbed(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("version errors name the regeneration command", func(t *testing.T) {
+		result := generateToolWrapper(t, DefaultToolWrapperOptions())
+		// All three version-gate errors (missing binary, unparseable output,
+		// incompatible version) end with the regeneration instruction.
+		want := "regenerate the plugin: taskflow tool-wrapper --output .opencode/plugins/taskflow.ts"
+		if count := strings.Count(result, want); count != 3 {
+			t.Errorf("GenerateToolWrapper() regeneration instruction count = %d, want 3", count)
+		}
+	})
+}
+
+func TestGenerateToolWrapperPluginOptions(t *testing.T) {
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
+
+	// The plugin reads the taskflow binary from plugin options, falling back
+	// to the embedded default.
+	wantContains := []string{
+		"ctx.options ? ctx.options.binaryPath : undefined",
+		"optionBinary.trim() : DEFAULT_BINARY",
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(result, want) {
+			t.Errorf("GenerateToolWrapper() output missing: %s", want)
+		}
+	}
+}
+
+func TestGenerateToolWrapperDirectoryResolution(t *testing.T) {
+	opts := DefaultToolWrapperOptions()
+	result := generateToolWrapper(t, opts)
+
+	// The spawn cwd is resolved per session from the session's worktree-aware
+	// working directory, falling back to the plugin load location.
+	wantContains := []string{
+		"function makeDirectoryResolver(ctx, fallback)",
+		"ctx.session.get({ sessionID })",
+		"session.location.directory",
+		"const pluginDirectory",
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(result, want) {
+			t.Errorf("GenerateToolWrapper() output missing: %s", want)
+		}
+	}
+
+	// The V1 directory plumbing must be gone.
+	mustNotContain := []string{
+		"cwd: context.directory",
+		"context.worktree",
+		"import path",
+		"path.dirname",
+	}
+	for _, bad := range mustNotContain {
+		if strings.Contains(result, bad) {
+			t.Errorf("GenerateToolWrapper() output must not contain: %s", bad)
+		}
+	}
 }
 
 func TestGenerateToolWrapperCustomBinaryVersionCheck(t *testing.T) {
-	opts := &ToolWrapperOptions{BinaryPath: "mybin", Version: "0.1.0"}
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+	result := generateToolWrapper(t, &ToolWrapperOptions{BinaryPath: "mybin", Version: "0.1.0"})
+
+	if !strings.Contains(result, `const DEFAULT_BINARY = "mybin";`) {
+		t.Error(`GenerateToolWrapper() should embed the custom binary: const DEFAULT_BINARY = "mybin";`)
 	}
 
-	if !strings.Contains(result, `checkVersion("mybin")`) {
-		t.Error(`GenerateToolWrapper() should call checkVersion("mybin")`)
-	}
-	if !strings.Contains(result, "execFileSync(`mybin`") {
-		t.Error("GenerateToolWrapper() should use custom binary path in execFileSync")
+	// The default stays "taskflow".
+	defaultResult := generateToolWrapper(t, DefaultToolWrapperOptions())
+	if !strings.Contains(defaultResult, `const DEFAULT_BINARY = "taskflow";`) {
+		t.Error(`GenerateToolWrapper() should default to: const DEFAULT_BINARY = "taskflow";`)
 	}
 }
 
-func TestGenerateToolWrapperContainsToolHelper(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+func TestGenerateToolWrapperSubcommands(t *testing.T) {
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
+
+	// The five list tools share the "list" subcommand; every other tool maps
+	// to its own CLI subcommand.
+	if count := strings.Count(result, `["list", JSON.stringify(payload)]`); count != 5 {
+		t.Errorf(`GenerateToolWrapper() ["list", ...] count = %d, want 5`, count)
+	}
+	singles := []string{
+		`["reset-timedout", JSON.stringify(payload)]`,
+		`["update", JSON.stringify(payload)]`,
+		`["unblock", JSON.stringify(payload)]`,
+		`["add", JSON.stringify(payload)]`,
+		`["block", JSON.stringify(payload)]`,
+		`["complete", JSON.stringify(payload)]`,
+		`["delete", JSON.stringify(payload)]`,
+	}
+	for _, want := range singles {
+		if count := strings.Count(result, want); count != 1 {
+			t.Errorf("GenerateToolWrapper() %q count = %d, want 1", want, count)
+		}
+	}
+}
+
+func TestGenerateToolWrapperFixedStatuses(t *testing.T) {
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
+
+	// Fixed payload statuses: one per filtered list tool, plus start's
+	// in_progress (so in_progress counts twice).
+	statusCounts := []struct {
+		pattern string
+		want    int
+	}{
+		{`status: "blocked"`, 1},
+		{`status: "done"`, 1},
+		{`status: "in_progress"`, 2},
+		{`status: "todo"`, 1},
+	}
+	for _, sc := range statusCounts {
+		if count := strings.Count(result, sc.pattern); count != sc.want {
+			t.Errorf("GenerateToolWrapper() %q count = %d, want %d", sc.pattern, count, sc.want)
+		}
+	}
+}
+
+func TestGenerateToolWrapperToolNames(t *testing.T) {
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
+
+	// Every tool name, with underscores preserved (reset_timedout).
+	commandNames := []string{
+		"add",
+		"block",
+		"complete",
+		"delete",
+		"list_all",
+		"list_blocked",
+		"list_done",
+		"list_status_in_progress",
+		"list_status_todo",
+		"reset_timedout",
+		"start",
+		"unblock",
+	}
+	for _, name := range commandNames {
+		pattern := `name: "` + name + `"`
+		if !strings.Contains(result, pattern) {
+			t.Errorf("GenerateToolWrapper() output missing: %s", pattern)
+		}
 	}
 
-	// Check for tool import
-	if !strings.Contains(result, "import { tool } from \"@opencode-ai/plugin\"") {
-		t.Error("GenerateToolWrapper() output missing: import { tool } from \"@opencode-ai/plugin\"")
-	}
-
-	// Check for tool({ pattern
-	if !strings.Contains(result, "tool({") {
-		t.Error("GenerateToolWrapper() output missing: tool({")
+	// Twelve tool name fields; the namespace registration uses the
+	// NAMESPACE constant, so it carries no quoted name field.
+	if count := strings.Count(result, `name: "`); count != len(commandNames) {
+		t.Errorf("GenerateToolWrapper() name field count = %d, want %d", count, len(commandNames))
 	}
 }
 
 func TestGenerateToolWrapperContainsDescription(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
 
-	// Check for description field
-	if !strings.Contains(result, "description:") {
-		t.Error("GenerateToolWrapper() output missing: description:")
-	}
-
-	// Check for specific command descriptions
 	descriptions := []string{
 		"Add a new task to the task list",
-		"Mark a task as completed",
 		"Block a task by providing its ID and a reason",
+		"Mark a task as completed",
 		"Soft delete a task",
+		"List all tasks",
+		"List blocked tasks",
+		"List completed tasks",
+		"List in-progress tasks",
+		"List todo tasks",
 		"Reset timed out tasks to todo status",
 		"Start working on a task",
+		"Unblock a previously blocked task",
 	}
 
 	for _, desc := range descriptions {
@@ -214,180 +399,51 @@ func TestGenerateToolWrapperContainsDescription(t *testing.T) {
 	}
 }
 
-func TestGenerateToolWrapperContainsArgsWithZodSchema(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+func TestGenerateToolWrapperDoesNotAdvertiseAllOrListIDKnobs(t *testing.T) {
+	// cmd/list.go accepts an "all" status and an "id" filter, but the
+	// generated plugin must not advertise either: the filtered list_* tools
+	// and the individual task tools cover those cases.
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
+
+	if strings.Contains(result, "Show all tasks including completed") {
+		t.Error(`GenerateToolWrapper() output must not advertise the removed "all" list parameter`)
+	}
+	if strings.Contains(result, "args.all") {
+		t.Error("GenerateToolWrapper() output must not reference args.all in a payload")
+	}
+	if strings.Contains(result, `all: { type: "boolean"`) {
+		t.Error(`GenerateToolWrapper() output must not define an "all" argument`)
+	}
+	if strings.Contains(result, "specific task") {
+		t.Error("GenerateToolWrapper() output must not advertise a get-task-by-id list knob")
 	}
 
-	// Check for args field
-	if !strings.Contains(result, "args:") {
-		t.Error("GenerateToolWrapper() output missing: args:")
+	// id: args.id belongs only to add, block, complete, delete, start, and
+	// unblock - never to a list payload.
+	if count := strings.Count(result, "id: args.id"); count != 6 {
+		t.Errorf("GenerateToolWrapper() id: args.id count = %d, want 6", count)
 	}
-
-	// Check for tool.schema patterns
-	schemaPatterns := []string{
-		"tool.schema.string()",
-		"tool.schema.number()",
-	}
-
-	for _, pattern := range schemaPatterns {
-		if !strings.Contains(result, pattern) {
-			t.Errorf("GenerateToolWrapper() output missing: %s", pattern)
-		}
-	}
-
-	// Check for .describe() calls (part of Zod schema)
-	if !strings.Contains(result, ".describe(") {
-		t.Error("GenerateToolWrapper() output missing: .describe(")
-	}
-}
-
-func TestGenerateToolWrapperContainsExecuteFunction(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	// Check for execute function
-	if !strings.Contains(result, "async execute(args, context)") {
-		t.Error("GenerateToolWrapper() output missing: async execute(args, context)")
-	}
-
-	// Check that multiple tools have execute functions
-	count := strings.Count(result, "async execute(args, context)")
-	if count != 12 {
-		t.Errorf("GenerateToolWrapper() should have exactly 12 execute functions, found %d", count)
+	// The sort knob is advertised on the list tools instead.
+	if count := strings.Count(result, "sort_by: args.sort_by"); count != 5 {
+		t.Errorf("GenerateToolWrapper() sort_by: args.sort_by count = %d, want 5", count)
 	}
 }
 
-func TestGenerateToolWrapperProducesValidOutput(t *testing.T) {
-	opts := &ToolWrapperOptions{
-		BinaryPath: "taskflow",
-	}
+func TestGenerateToolWrapperCancellationAndErrorHelpers(t *testing.T) {
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
 
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
+	wantContains := []string{
+		"was canceled",
+		`taskflow ${args[0]} failed:`,
+		"maxBuffer: 16 * 1024 * 1024",
+		"windowsHide: true",
+		// The abort/kill detection in runBinary.
+		"options.signal?.aborted",
+		`err.name === "AbortError"`,
 	}
-
-	// Check that key elements are present
-	checks := []struct {
-		pattern string
-		desc    string
-	}{
-		{"import { tool } from \"@opencode-ai/plugin\"", "tool import"},
-		{"export const task_add = tool({", "add tool definition"},
-		{"export const task_complete = tool({", "complete tool definition"},
-		{"export const task_block = tool({", "block tool definition"},
-		{"export const task_delete = tool({", "delete tool definition"},
-		{"export const task_list_all = tool({", "list_all tool definition"},
-		{"export const task_list_blocked = tool({", "list_blocked tool definition"},
-		{"export const task_list_done = tool({", "list_done tool definition"},
-		{"export const task_list_status_in_progress = tool({", "list_status_in_progress tool definition"},
-		{"export const task_list_status_todo = tool({", "list_status_todo tool definition"},
-		{"export const task_reset_timedout = tool({", "reset_timedout tool definition"},
-		{"export const task_start = tool({", "start tool definition"},
-		{"description:", "description field"},
-		{"args: {", "args object start"},
-		{"async execute(args, context)", "execute function"},
-		{"const cmdArgs = [", "command args array"},
-		{"execFileSync", "execFileSync call"},
-	}
-
-	for _, check := range checks {
-		if !strings.Contains(result, check.pattern) {
-			t.Errorf("GenerateToolWrapper() output missing: %s", check.desc)
-		}
-	}
-}
-
-func TestGenerateToolWrapperWithCustomBinaryPath(t *testing.T) {
-	opts := &ToolWrapperOptions{
-		BinaryPath: "custom-task-cli",
-	}
-
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	// Verify custom binary path is used in execFileSync calls
-	if !strings.Contains(result, "execFileSync(`custom-task-cli`") {
-		t.Error("GenerateToolWrapper() should use custom binary path")
-	}
-}
-
-func TestGenerateToolWrapperContainsAllCommands(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	// Individual command tools
-	commandNames := []string{
-		"task_add",
-		"task_block",
-		"task_complete",
-		"task_delete",
-		"task_list_all",
-		"task_list_blocked",
-		"task_list_done",
-		"task_list_status_in_progress",
-		"task_list_status_todo",
-		"task_reset_timedout",
-		"task_start",
-		"task_unblock",
-	}
-
-	for _, cmd := range commandNames {
-		pattern := "export const " + cmd + " = tool({"
-		if !strings.Contains(result, pattern) {
-			t.Errorf("GenerateToolWrapper() output missing: %s", cmd)
-		}
-	}
-}
-
-func TestGenerateToolWrapperCommandArgumentHandling(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	// Verify JSON format for arguments
-	if !strings.Contains(result, "args.") {
-		t.Error("GenerateToolWrapper() should reference args in JSON serialization")
-	}
-
-	// Verify JSON format for arguments
-	if !strings.Contains(result, "JSON.stringify") {
-		t.Error("GenerateToolWrapper() should use JSON format for arguments")
-	}
-}
-
-func TestGenerateToolWrapperSchemaTypes(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	// Verify different Zod schema types are used
-	schemaTypes := []struct {
-		pattern string
-		desc    string
-	}{
-		{"tool.schema.string()", "string schema"},
-		{"tool.schema.number()", "number schema"},
-	}
-
-	for _, st := range schemaTypes {
-		if !strings.Contains(result, st.pattern) {
-			t.Errorf("GenerateToolWrapper() missing schema type: %s", st.desc)
+	for _, want := range wantContains {
+		if !strings.Contains(result, want) {
+			t.Errorf("GenerateToolWrapper() output missing: %s", want)
 		}
 	}
 }
@@ -412,6 +468,7 @@ func TestGenerateToolWrapperNoErrorsOnValidInput(t *testing.T) {
 		{"custom binary", &ToolWrapperOptions{BinaryPath: "mybin"}},
 		{"nil options", nil},
 		{"empty binary", &ToolWrapperOptions{BinaryPath: ""}},
+		{"empty version", &ToolWrapperOptions{BinaryPath: "taskflow", Version: ""}},
 	}
 
 	for _, tc := range testCases {
@@ -425,95 +482,9 @@ func TestGenerateToolWrapperNoErrorsOnValidInput(t *testing.T) {
 }
 
 func TestGenerateToolWrapperReturnsNonEmpty(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
+	result := generateToolWrapper(t, DefaultToolWrapperOptions())
 
 	if len(result) == 0 {
 		t.Error("GenerateToolWrapper() should return non-empty string")
-	}
-}
-
-func TestGenerateToolWrapperReturnsResult(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	// Verify the result includes return statement
-	if !strings.Contains(result, "return result;") {
-		t.Error("GenerateToolWrapper() should return result from execSync")
-	}
-}
-
-func TestGenerateToolWrapperUnblockCommand(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	// Verify task_unblock tool definition exists
-	pattern := "export const task_unblock = tool({"
-	if !strings.Contains(result, pattern) {
-		t.Errorf("GenerateToolWrapper() output missing: %s", pattern)
-	}
-
-	// Verify description includes unblock-specific text
-	if !strings.Contains(result, "Unblock a previously blocked task") {
-		t.Error("GenerateToolWrapper() output missing unblock command description")
-	}
-
-	// Verify the CLI subcommand "unblock" is used
-	if !strings.Contains(result, `cmdArgs.push("unblock")`) {
-		t.Error("GenerateToolWrapper() should use 'unblock' as CLI subcommand")
-	}
-
-	// Verify id argument is present
-	if !strings.Contains(result, "id: args.id") {
-		t.Error("GenerateToolWrapper() should reference args.id in payload")
-	}
-
-	// Verify description argument is present
-	if !strings.Contains(result, "description: args.description") {
-		t.Error("GenerateToolWrapper() should reference args.description in payload")
-	}
-}
-
-func TestGenerateToolWrapperHandlesDashesInCommandNames(t *testing.T) {
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	// Verify that underscores are preserved (reset_timedout -> task_reset_timedout)
-	if strings.Contains(result, "task_reset_timedout") {
-		// This is the expected behavior - underscores preserved
-	} else if strings.Contains(result, "task_resetTimedout") {
-		t.Error("Command name with underscores should be preserved")
-	}
-}
-
-func TestGenerateToolWrapperDoesNotAdvertiseAllKnob(t *testing.T) {
-	// cmd/list.go no longer reads an "all" JSON field, so the generated
-	// wrapper must not advertise one.
-	opts := DefaultToolWrapperOptions()
-	result, err := GenerateToolWrapper(opts)
-	if err != nil {
-		t.Fatalf("GenerateToolWrapper() unexpected error: %v", err)
-	}
-
-	if strings.Contains(result, "Show all tasks including completed") {
-		t.Error("GenerateToolWrapper() output must not advertise the removed \"all\" list parameter")
-	}
-	if strings.Contains(result, "args.all") {
-		t.Error("GenerateToolWrapper() output must not reference args.all in a payload")
-	}
-	if strings.Contains(result, "all: tool.schema.boolean()") {
-		t.Error("GenerateToolWrapper() output must not define an \"all\" argument")
 	}
 }

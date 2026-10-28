@@ -46,19 +46,21 @@ var (
 
 var toolWrapperCmd = &cobra.Command{
 	Use:   "tool-wrapper",
-	Short: "Generate OpenCode tool wrapper for taskflow CLI",
-	Long: `Generate TypeScript tool wrapper code for OpenCode agent integration.
+	Short: "Generate an OpenCode 2.0 plugin for the taskflow CLI",
+	Long: `Generate a complete OpenCode 2.0 plugin for taskflow CLI integration.
 
-This command creates TypeScript tool wrappers that wrap the taskflow CLI operations
-for use in the OpenCode environment using the tool() helper format.`,
-	Example: `  # Generate TypeScript tool wrapper for OpenCode integration
+This command creates a plugin file that default-exports Plugin.define and
+registers the taskflow_* tools through ctx.tool.transform. Each tool runs the
+taskflow CLI in the session's working directory, and the plugin gates
+execution on a taskflow version check.`,
+	Example: `  # Generate the plugin for OpenCode integration
   taskflow tool-wrapper
 
-  # Generate TypeScript tool wrapper with custom binary name
+  # Generate with a custom binary name
   taskflow tool-wrapper --binary-path my-task
 
-  # Generate TypeScript tool wrapper and save to OpenCode tools directory
-  taskflow tool-wrapper --output .opencode/tools/taskflow.ts`,
+  # Save where OpenCode 2.0 auto-discovers it
+  taskflow tool-wrapper --output .opencode/plugins/taskflow.ts`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Build options
@@ -99,7 +101,7 @@ for use in the OpenCode environment using the tool() helper format.`,
 			if err := os.WriteFile(outputFile, []byte(code), 0644); err != nil {
 				return fmt.Errorf("writing to file: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Generated tool wrapper to: %s\n", outputFile)
+			fmt.Fprintf(cmd.OutOrStdout(), "Generated plugin file: %s\n", outputFile)
 			return nil
 		}
 		_, err = fmt.Fprint(cmd.OutOrStdout(), code)
